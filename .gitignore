@@ -1,0 +1,23 @@
+# Auto-generated
+
+# === Custom additions ===
+.env
+.env.*
+*.log
+*.pid
+*.bak
+*.swp
+*~
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.pyc
+__pycache__/
+node_modules/
+dist/
+build/
+*.egg-info/
+.terraform/
+*.tfstate*
+
