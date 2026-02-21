@@ -1,23 +1,36 @@
-# Auto-generated
-
-# === Custom additions ===
-.env
-.env.*
-*.log
-*.pid
-*.bak
-*.swp
-*~
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
-*.pyc
+# Python
 __pycache__/
-node_modules/
+*.py[cod]
+.venv/
+venv/
 dist/
 build/
 *.egg-info/
-.terraform/
-*.tfstate*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
+# Node / JS
+node_modules/
+.npm/
+dist/
+
+# Lua
+*.luac
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Secrets — never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# OS
+.DS_Store
+Thumbs.db
