@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "repotruth": "dist/src/bin.js"
+    "repotruth": "dist/src/bin.js",
+    "repotruth-mcp": "dist/src/mcp/bin.js"
   },
   "engines": {
     "node": ">=22"
@@ -14,14 +15,18 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test \"dist/test/**/*.test.js\"",
-    "audit:self": "node dist/src/bin.js audit .."
+    "audit:self": "node dist/src/bin.js audit ..",
+    "mcp": "node dist/src/mcp/bin.js"
   },
   "license": "UNLICENSED",
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.2.0",
     "@types/node": "22.20.4",
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "yaml": "2.9.1"
+    "@modelcontextprotocol/server": "2.2.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
   }
 }

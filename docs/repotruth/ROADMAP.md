@@ -3,21 +3,50 @@
 Status key: **Built** = in `repotruth/` with tests. Everything else on this
 page is **design only**.
 
-**Built (v0.1.0):** a single-repo deterministic CLI; human and JSON output;
-fingerprints; exit codes; scan limits.
+**Built (v0.1.0):**
+- a single-repo deterministic CLI with human and JSON output, fingerprints,
+  exit codes and scan limits;
+- a **local stdio MCP adapter** (`repotruth/src/mcp/`) with one tool,
+  `audit_repository`.
+
+**Not built:** any hosted, network-reachable or paid API; the GitHub App;
+fleet view; AI review; auto-fix.
 
 All phases reuse `auditRepository(root, options) → AuditResult` from
 `repotruth/src/audit.ts`. Adapters must not import rule internals.
 
-## 1. MCP adapter (next)
+## 1. MCP adapter
 
-- Add an MCP SDK dependency only in this phase.
-- Tool `repotruth_audit` takes `{ path: string, failOn?: Severity, maxFiles?: ≤5000, maxFileBytes?: ≤1 MiB, timeoutMs?: ≤30000 }`.
-  - `path` must resolve inside an allow-listed workspace root set by the server operator. There are no network fetches and no git clone in this tool.
-  - It returns the `AuditResult` JSON (schema 1.0.0) plus a short text summary.
-- Tool `repotruth_rules` lists rule IDs and their descriptions.
-- Auditability: log every call (path, limits, duration, finding count). Server-side limits are hard caps, not defaults a client can raise.
-- Scanned content is data. Findings contain repository excerpts, so clients should treat `evidence` as untrusted text.
+### 1a. Local stdio adapter: BUILT
+
+- `@modelcontextprotocol/server` 2.2.0 (v2 stable line), with zod 4 schemas.
+  The client package is a dev dependency, used only by tests.
+- One tool, `audit_repository`, with input `{ path?, maxFiles?, maxFileBytes?, maxTotalBytes?, timeoutMs? }`.
+  - Limits can only be lowered.
+  - `path` must canonicalize inside the operator's `--allowed-root`.
+  - URLs are rejected.
+- Output: CLI JSON schema 1.0.0 plus `target.path` and a `response` block
+  that reports size-budget truncation explicitly. Errors are `isError`
+  results with a code.
+- Tested through the official MCP client over stdio (see
+  `repotruth/test/mcp.test.ts`).
+
+**Differences from the original design, kept deliberately:**
+- There is no `failOn` input: it only affects CLI exit codes, which don't
+  apply to MCP.
+- There is no `repotruth_rules` tool: one tool keeps the surface minimal.
+- There is no per-call audit log. stderr carries only startup and
+  configuration diagnostics, so that paths and repository data aren't
+  logged. If an operator needs an audit log, add an opt-in, redacted log file
+  in a later phase.
+
+### 1b. Hosted / paid API: NOT BUILT
+
+A network-reachable or billed API would need authentication, tenancy
+isolation, rate limiting, request/response size limits, fetching of remote
+repositories into disposable sandboxes, and an abuse policy. None of these
+exist. The local stdio server must not be exposed over a network as a
+substitute.
 
 ## 2. GitHub App (read-only first)
 

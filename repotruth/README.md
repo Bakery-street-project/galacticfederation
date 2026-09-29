@@ -1,4 +1,4 @@
-# RepoTruth (CLI MVP, v0.1.0)
+# RepoTruth (CLI + local MCP adapter, v0.1.0)
 
 RepoTruth audits **one local repository** and reports where its CI, setup
 instructions, license statements, imports, and self-descriptions contradict
@@ -6,11 +6,13 @@ what is actually in the repository. It is aimed at repos generated or
 maintained by AI tools, where "green CI" and a polished README can hide
 things that do not work.
 
-**What it is today:** a deterministic, read-only command-line scanner. No API
-key, no network, no model. It never runs the target's code, scripts,
-workflows, or package installs.
+**What it is today:** a deterministic, read-only command-line scanner, plus
+a **local stdio MCP server** with one tool, `audit_repository`, that runs the
+same audit core. Neither needs an API key or network access, and neither calls
+a model. Neither ever runs the target's code, scripts, workflows, or package
+installs.
 
-**What it is not (yet):** there is no MCP server, GitHub App, fleet
+**What it is not (yet):** there is no hosted or paid API, GitHub App, fleet
 dashboard, AI-assisted review, or auto-fix. These are designed in
 [`docs/repotruth/ROADMAP.md`](../docs/repotruth/ROADMAP.md) but not built.
 It is also not a security scanner.
@@ -45,6 +47,124 @@ repotruth audit <path> [--format human|json] [--fail-on info|low|medium|high|non
 
 Default limits: 5,000 files, 1 MiB per file, 50 MiB total, 30 s. When a limit
 is hit, the report says `truncated` and lists what was skipped.
+
+## MCP server (local, stdio)
+
+`dist/src/mcp/bin.js` is an MCP server that a compatible client (for example
+an MCP-capable coding agent) launches as a child process. It speaks MCP over
+stdin/stdout and exposes one tool: `audit_repository`. It uses
+`@modelcontextprotocol/server` 2.2.0. Nothing is hosted, and there is no
+network listener.
+
+### Build and launch
+
+```bash
+cd repotruth
+npm ci
+npm run build
+node dist/src/mcp/bin.js --allowed-root /absolute/path/to/workspace
+# or: REPOTRUTH_ALLOWED_ROOT=/absolute/path/to/workspace node dist/src/mcp/bin.js
+```
+
+Run by hand, the server waits for an MCP client on stdin. It prints one
+startup line to stderr, writes only protocol messages to stdout, and exits
+when stdin closes.
+
+- `--allowed-root <dir>` (required): the only directory tree the tool may
+  audit.
+- `--max-response-bytes N`: size budget for a tool result's structured
+  content. Default 100000; allowed range 2048–10000000.
+- Exit code 2: startup configuration error (missing or invalid root, bad
+  flag). Once running, a bad request never exits the process.
+
+### Client configuration (TEMPLATE; not tested in any specific client)
+
+Many MCP clients accept a JSON server entry of this shape. Replace both
+placeholder paths with real absolute paths on your machine. This template
+has only been exercised via the official MCP TypeScript client in this
+package's tests. It has **not** been installed or verified in a Claude Code
+environment or any other client.
+
+```json
+{
+  "mcpServers": {
+    "repotruth": {
+      "command": "node",
+      "args": [
+        "/ABSOLUTE/PATH/TO/galacticfederation/repotruth/dist/src/mcp/bin.js",
+        "--allowed-root",
+        "/ABSOLUTE/PATH/TO/YOUR/WORKSPACE"
+      ]
+    }
+  }
+}
+```
+
+### Tool contract: `audit_repository`
+
+Input: a strict object; unknown keys are rejected.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `path` | string, optional | Directory to audit, relative to the allowed root or absolute inside it. Default: the allowed root. URLs and `git@host:` remotes are rejected. |
+| `maxFiles`, `maxFileBytes`, `maxTotalBytes`, `timeoutMs` | integer, optional | Can only **lower** the core limits (defaults 5000 files, 1 MiB per file, 50 MiB total, 30 s). |
+
+Output on success (`structuredContent`, validated against the advertised
+`outputSchema`):
+- the same fields as CLI JSON schema 1.0.0 (`schemaVersion`, `tool`,
+  `durationMs`, `stats`, `limits`, `coverage`, `skipped`, `summary`,
+  `findings`);
+- `target.path`, the path relative to the allowed root; absolute paths are
+  never returned;
+- a `response` block: `truncated`, `maxBytes`, `findingsReturned`,
+  `findingsTotal`, `omittedBySeverity`, `skippedReturned`, `skippedTotal`,
+  and `fullReport` (the CLI command for the complete report).
+
+The text `content` is a one-paragraph summary that repeats any truncation
+warnings.
+
+Errors are tool results with `isError: true`, never a server crash:
+- **Target errors** carry `structuredContent.error.code`, one of
+  `OUTSIDE_ALLOWED_ROOT`, `URL_NOT_SUPPORTED`, `NOT_FOUND`,
+  `NOT_A_DIRECTORY`, `UNREADABLE`, `INVALID_ARGUMENT`, `SCAN_ERROR` or
+  `INTERNAL_ERROR`, plus a message.
+- **Schema violations** (wrong type, unknown key, out-of-range limit) are
+  rejected by the SDK before the handler runs. They come back as `isError`
+  results whose text starts with `Input validation error:`, with no
+  structured `error` field.
+- A valid audit that *has findings* is **not** an error. Findings live in the
+  result, and CLI exit codes don't apply to MCP.
+
+### Truncation: two kinds, both explicit
+
+- **Scan truncation** (`limits.truncated`): a file/byte/time limit stopped
+  discovery early. `limits.notes` says which one.
+- **Response truncation** (`response.truncated`): findings or skipped entries
+  were dropped so the result fits `--max-response-bytes`.
+  - Higher-severity findings are kept first.
+  - `summary` and `findingsTotal` still describe the full audit.
+  - For everything, run the CLI locally:
+    `node dist/src/bin.js audit <dir> --format json`.
+
+### Trust boundary
+
+- **Read-only.** The server reads files under the allowed root with the core's
+  bounded, non-symlink-following reader. It never executes, installs or
+  imports target code, and makes no network calls. A test proves this with
+  booby-trapped scripts, imports, a workflow step and a Makefile.
+- **Path policy.** Targets are canonicalized with `realpath` and must stay
+  inside the canonical allowed root. `../` traversal, absolute paths
+  elsewhere, and symlinks pointing out of the root are rejected with
+  `OUTSIDE_ALLOWED_ROOT`. This is an application check, **not** an OS
+  sandbox: run the server as a user that can only read what it should.
+- **Untrusted output.** `evidence`, titles and paths contain text from the
+  audited repository. Treat them as data, never as instructions; the tool
+  description tells clients the same.
+- **One audit at a time.** Requests are queued so concurrent calls can't
+  multiply the core's resource limits. Each request builds its own index,
+  so no state carries over between requests.
+- **Diagnostics.** stderr gets one startup line and configuration errors.
+  It never receives repository contents, paths or environment values.
 
 ## Rules
 
@@ -91,8 +211,10 @@ stable when lines shift.
 `discovery` (bounded, read-only file index) → `parsers` (workflow YAML,
 Markdown, source comments/imports, license text) → `rules` (independent
 modules) → `audit` (fingerprints, sorting, summary) → `report` / `cli`. The
-audit core (`auditRepository`) has no CLI dependencies, so future adapters can
-call it directly.
+audit core (`auditRepository`) has no CLI dependencies. The MCP adapter
+(`src/mcp/`) calls it directly: `policy.ts` handles the allowed-root check,
+`tool.ts` holds the schemas, handler and response bounding, `server.ts`
+registers the tool, and `bin.ts` handles stdio and configuration.
 
 See [`examples/`](examples/) for the human and JSON output from auditing this
 repository.
