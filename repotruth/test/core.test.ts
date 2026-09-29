@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { access, chmod, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { auditRepository, AuditConfigError } from '../src/audit.js';
 import { main } from '../src/cli.js';
 import { DeadlineExceeded, DEFAULT_LIMITS, discover } from '../src/discovery.js';
@@ -142,5 +143,33 @@ describe('output contract', () => {
     const r = await auditRepository(root);
     assert.ok(r.findings.length > 0);
     await assert.rejects(access(marker), 'scanner must not run scripts, imports, workflows or make targets');
+  });
+});
+
+describe('RepoTruth can read its own sources', () => {
+  const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  const ALLOWED_CONTROL = new Set([9, 10, 13]);
+
+  async function collect(dir: string, out: string[] = []): Promise<string[]> {
+    for (const entry of await readdir(path.join(REPO_ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) await collect(rel, out);
+      else if (entry.name.endsWith('.ts')) out.push(rel);
+    }
+    return out;
+  }
+
+  it('keeps no raw control bytes in src/ or test/, so no file is silently skipped as binary', async () => {
+    const files = [...(await collect('src')), ...(await collect('test'))];
+    assert.ok(files.length > 0);
+    const offenders: string[] = [];
+    for (const rel of files) {
+      const buf = await readFile(path.join(REPO_ROOT, rel));
+      // discovery.ts:103 classifies a file as binary when the first 8192 bytes hold a
+      // NUL, which silently drops the file from coverage. Match that scan exactly.
+      const hit = buf.subarray(0, 8192).findIndex((b) => b === 0 || (!ALLOWED_CONTROL.has(b) && b < 32));
+      if (hit !== -1) offenders.push(`${rel} (byte ${hit})`);
+    }
+    assert.deepEqual(offenders, [], `raw control bytes make these files look binary: ${offenders.join(', ')}`);
   });
 });
