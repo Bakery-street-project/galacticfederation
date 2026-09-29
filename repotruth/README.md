@@ -29,8 +29,25 @@ node dist/src/bin.js audit ..                  # human-readable
 node dist/src/bin.js audit .. --format json    # versioned JSON (schemaVersion 1.0.0)
 ```
 
-Development scripts: `npm run typecheck`, `npm test` (builds, then runs
-`node:test`), `npm run build`.
+Development scripts: `npm run typecheck`, `npm test`, `npm run build`,
+`npm run audit:self` (builds, then audits this repository), `npm run mcp`
+(builds, then starts the server), `npm run fleet` (builds, then starts the
+fleet dashboard).
+
+### Known gap: the `bin` entries need a build
+
+`package.json` declares three bin entries — `repotruth`, `repotruth-mcp`,
+`repotruth-fleet` — and all three point into `dist/`, which `.gitignore`
+excludes. npm runs no lifecycle script when it resolves a bin path, so
+installing or `npx`-ing the package on a clean checkout will fail with
+`MODULE_NOT_FOUND` until something has run `npm run build` first.
+
+This is stated rather than worked around on purpose. The fixes all cost
+something: a `prepare` script would run on every `npm install` including a
+consumer's, a `postinstall` is the same idea with a worse reputation and
+silent-failure modes, and shipping compiled JavaScript would contradict
+`"private": true`. The repository is not published, so the gap costs
+nothing today; it becomes a decision only at publish time.
 
 ## Options and exit codes
 
