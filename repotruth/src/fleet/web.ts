@@ -3,6 +3,9 @@
 // per-process token on every state-changing request (CSRF defense). All
 // repository-derived text is HTML-escaped: it is untrusted.
 // This is a single-operator local tool, not multi-user authentication.
+// POST /webhooks is the one exception to the token rule: GitHub cannot hold a
+// per-process token, so it authenticates with the webhook HMAC instead. It is
+// still served by this same loopback listener, never a new network port.
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -12,10 +15,13 @@ import { compareRuns, completeness } from './compare.js';
 import { GitHubError } from './sources/github.js';
 import { FleetError, type FleetService, type RepoSummary } from './service.js';
 import type { Comparison, RunRecord } from './types.js';
+import { WebhookError, type WebhookReceiver } from './webhooks.js';
 
 export interface WebOptions {
   host?: string;
   port?: number;
+  /** When set, POST /webhooks is served and authenticated by the GitHub HMAC signature. */
+  webhooks?: WebhookReceiver;
 }
 
 export interface WebHandle {
@@ -195,7 +201,7 @@ function renderCompare(svc: FleetService, repoId: string, c: Comparison): string
 <div class="card"><p class="mono">${esc(c.baseRunId ?? 'none')} → ${esc(c.headRunId)}</p>${comparisonBlock(repo.id, c)}</div>`);
 }
 
-async function readBody(req: IncomingMessage, max = 16 * 1024): Promise<string> {
+async function readBodyBuffer(req: IncomingMessage, max: number): Promise<Buffer> {
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of req as AsyncIterable<Buffer>) {
@@ -203,7 +209,16 @@ async function readBody(req: IncomingMessage, max = 16 * 1024): Promise<string> 
     if (size > max) throw new FleetError('TOO_LARGE', 'request body too large');
     chunks.push(chunk);
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
+}
+
+async function readBody(req: IncomingMessage, max = 16 * 1024): Promise<string> {
+  return (await readBodyBuffer(req, max)).toString('utf8');
+}
+
+function header(req: IncomingMessage, name: string): string | undefined {
+  const v = req.headers[name];
+  return Array.isArray(v) ? v[0] : v;
 }
 
 function sameToken(a: string | null | undefined, b: string): boolean {
@@ -248,6 +263,28 @@ export async function startDashboard(svc: FleetService, opts: WebOptions = {}): 
     ? { error: { code: err.code, message: err.message } }
     : { error: { code: 'INTERNAL_ERROR', message: 'internal error' } };
 
+  const handleWebhook = async (req: IncomingMessage, res: ServerResponse) => {
+    const receiver = opts.webhooks;
+    if (!receiver) return json(res, 404, { error: { code: 'NOT_CONFIGURED', message: 'webhooks are not enabled on this dashboard' } });
+    let body: Buffer;
+    try {
+      body = await readBodyBuffer(req, receiver.maxBodyBytes);
+    } catch (err) {
+      return json(res, errorStatus(err), errorBody(err));
+    }
+    try {
+      const result = await receiver.handle({
+        event: header(req, 'x-github-event'),
+        delivery: header(req, 'x-github-delivery'),
+        signature: header(req, 'x-hub-signature-256'),
+      }, body);
+      return json(res, result.status, result.body);
+    } catch (err) {
+      if (err instanceof WebhookError) return json(res, err.status, { error: { code: err.code, message: err.message } });
+      return json(res, 500, { error: { code: 'INTERNAL_ERROR', message: 'internal error' } });
+    }
+  };
+
   const server = createServer(async (req, res) => {
     try {
       if (!allowedHosts.has(req.headers.host ?? '')) return send(res, 421, 'text/plain', 'unexpected Host header');
@@ -257,6 +294,8 @@ export async function startDashboard(svc: FleetService, opts: WebOptions = {}): 
       const p = isApi ? parts.slice(1) : parts;
 
       if (req.method === 'POST') {
+        // Webhooks are authenticated by their own HMAC and never carry the dashboard token.
+        if (p.length === 1 && p[0] === 'webhooks') return await handleWebhook(req, res);
         const raw = await readBody(req);
         const ctype = req.headers['content-type'] ?? '';
         let form: URLSearchParams;
