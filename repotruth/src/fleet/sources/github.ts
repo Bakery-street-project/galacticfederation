@@ -1,8 +1,9 @@
-// Read-only GitHub App source. Authenticates as an App installation (no
-// personal access token), lists the repositories that installation can see,
-// resolves a commit, and downloads that commit's tarball into a temporary
-// directory through the defensive extractor. Tokens and the private key are
-// never logged or persisted.
+// GitHub App source. Authenticates as an App installation (no personal access
+// token), lists the repositories that installation can see, resolves a commit,
+// and downloads that commit's tarball into a temporary directory through the
+// defensive extractor. Its only write is creating a check run for a commit it
+// just audited, and only when the operator opts in. Tokens and the private key
+// are never logged or persisted.
 
 import { createPrivateKey, createSign, type KeyObject } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
@@ -55,6 +56,18 @@ export interface GitHubRepo {
 /** owner/name with GitHub's character set; `.` and `..` segments are rejected (path traversal). */
 export const REPO_NAME = /^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
 const SHA = /^[0-9a-f]{40}$/;
+
+/** Create-check-run request body; `output.annotations` mirrors the check-run output shape. */
+export interface CheckRunRequest {
+  name: string;
+  head_sha: string;
+  status?: 'queued' | 'in_progress' | 'completed';
+  started_at?: string;
+  completed_at?: string;
+  conclusion?: 'success' | 'failure' | 'neutral' | 'cancelled' | 'timed_out' | 'action_required' | 'skipped';
+  details_url?: string;
+  output?: { title: string; summary: string; text?: string; annotations?: unknown[] };
+}
 
 type FetchFn = typeof fetch;
 type RequestRedirect = 'error' | 'follow' | 'manual';
@@ -115,17 +128,19 @@ export class GitHubAppSource {
     return err;
   }
 
-  private async send(url: string, opts: { method?: string; auth?: string; accept?: string; redirect?: RequestRedirect; signal?: AbortSignal }): Promise<Response> {
+  private async send(url: string, opts: { method?: string; auth?: string; accept?: string; redirect?: RequestRedirect; signal?: AbortSignal; json?: unknown }): Promise<Response> {
     const headers: Record<string, string> = {
       Accept: opts.accept ?? 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent': 'repotruth-fleet',
     };
     if (opts.auth) headers.Authorization = opts.auth;
+    if (opts.json !== undefined) headers['Content-Type'] = 'application/json';
     try {
       return await this.fetchImpl(url, {
         method: opts.method ?? 'GET',
         headers,
+        body: opts.json === undefined ? undefined : JSON.stringify(opts.json),
         redirect: opts.redirect ?? 'error',
         signal: opts.signal ?? AbortSignal.timeout(this.limits.requestTimeoutMs),
       });
@@ -135,17 +150,17 @@ export class GitHubAppSource {
   }
 
   /**
-   * Authenticated API GET with one token refresh on 401, bounded waits for
-   * rate limits / Retry-After, and one retry on 5xx.
+   * Authenticated API request with one token refresh on 401, bounded waits for
+   * rate limits / Retry-After, and one retry on 5xx. Pass `json` to send a body.
    */
-  private async api(pathOrUrl: string, opts: { accept?: string; redirect?: RequestRedirect } = {}): Promise<Response> {
+  private async api(pathOrUrl: string, opts: { accept?: string; redirect?: RequestRedirect; method?: string; json?: unknown } = {}): Promise<Response> {
     const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${this.apiUrl}${pathOrUrl}`;
     if (!url.startsWith(`${this.apiUrl}/`)) throw this.fail(new GitHubError('BAD_REDIRECT', 'refusing to send credentials outside the configured API host'));
     let refreshed = false;
     let retried = false;
     for (;;) {
       const token = await this.installationToken();
-      const res = await this.send(url, { auth: `token ${token}`, accept: opts.accept, redirect: opts.redirect ?? 'error' });
+      const res = await this.send(url, { auth: `token ${token}`, accept: opts.accept, redirect: opts.redirect ?? 'error', method: opts.method, json: opts.json });
       if (res.status === 401 && !refreshed) {
         refreshed = true;
         await this.installationToken(true);
@@ -212,6 +227,27 @@ export class GitHubAppSource {
     const sha = (await res.json() as { sha?: unknown }).sha;
     if (typeof sha !== 'string' || !SHA.test(sha)) throw this.fail(new GitHubError('API_ERROR', 'commit response had no valid SHA'));
     return sha;
+  }
+
+  /**
+   * Creates a check run on `head_sha`, with its conclusion, in one call. Needs
+   * the App's `checks: write` permission; nothing else in this adapter writes.
+   */
+  async createCheckRun(fullName: string, payload: CheckRunRequest): Promise<{ id: number; html_url?: string }> {
+    if (!REPO_NAME.test(fullName)) throw new GitHubError('INVALID_REPO_NAME', 'expected "owner/name"');
+    if (!SHA.test(payload.head_sha)) throw new GitHubError('INVALID_REPO_NAME', 'head_sha must be a full 40-character commit SHA');
+    let res: Response;
+    try {
+      res = await this.api(`/repos/${fullName}/check-runs`, { method: 'POST', json: payload as unknown });
+    } catch (err) {
+      if (err instanceof GitHubError && (err.code === 'NOT_ACCESSIBLE' || err.code === 'API_ERROR')) {
+        throw this.fail(new GitHubError(err.code, `${err.message} (creating a check run needs the GitHub App permission "checks: write")`, err.status));
+      }
+      throw err;
+    }
+    const body = await res.json() as { id?: unknown; html_url?: unknown };
+    if (typeof body.id !== 'number') throw this.fail(new GitHubError('API_ERROR', 'check run response had no id'));
+    return { id: body.id, html_url: typeof body.html_url === 'string' ? body.html_url : undefined };
   }
 
   /**

@@ -12,6 +12,7 @@ import { AuditConfigError, auditRepository } from '../audit.js';
 import { DEFAULT_LIMITS } from '../discovery.js';
 import { TargetError } from '../mcp/policy.js';
 import { TOOL_VERSION, type Limits } from '../types.js';
+import type { CheckRunReporter } from './checks.js';
 import { compareRuns, completeness, latestPair } from './compare.js';
 import { GitHubAppSource, GitHubError, REPO_NAME, type GitHubRepo } from './sources/github.js';
 import { localSourceReport, resolveLocalRepo } from './sources/local.js';
@@ -27,6 +28,8 @@ export interface FleetOptions {
   auditLimits?: Partial<Limits>;
   /** Where GitHub snapshots are extracted temporarily. */
   tmpDir?: string;
+  /** When set, every completed GitHub scan also posts a check run. */
+  checks?: CheckRunReporter | null;
 }
 
 export class FleetError extends Error {
@@ -174,6 +177,7 @@ export class FleetService {
 
       let dir: string;
       let source: SourceReport;
+      let headSha: string | null = null;
       if (repo.kind === 'local') {
         if (!this.opts.allowedRoot) throw new FleetError('LOCAL_DISABLED', 'local repositories are disabled (no --allowed-root)');
         // Re-resolve every time: the path policy is checked at scan time, not only when added.
@@ -184,6 +188,7 @@ export class FleetService {
         if (!gh) throw new FleetError('NOT_CONFIGURED', 'GitHub App is not configured');
         const info = await gh.getRepository(repo.locator);
         const sha = await gh.resolveCommit(repo.locator, info.defaultBranch);
+        headSha = sha;
         tmp = await mkdtemp(path.join(this.opts.tmpDir ?? tmpdir(), 'repotruth-snap-'));
         const snap = await gh.fetchSnapshot(repo.locator, sha, tmp);
         dir = tmp;
@@ -206,6 +211,16 @@ export class FleetService {
         findings: result.findings,
       };
       run.status = 'completed';
+      if (headSha && this.opts.checks) {
+        // A check run is an outbound notification, never a scan requirement:
+        // a failure here must not fail the run.
+        try {
+          await this.opts.checks.report(run, { fullName: repo.locator, headSha });
+        } catch (err) {
+          const { code, message } = describeError(err, [tmp, this.opts.allowedRoot]);
+          if (run.source) run.source.notes.push(`check run not posted (${code}: ${message})`);
+        }
+      }
     } catch (err) {
       run.status = 'failed';
       run.error = describeError(err, [tmp, this.opts.allowedRoot]);
