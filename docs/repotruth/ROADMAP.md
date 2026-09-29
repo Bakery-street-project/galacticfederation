@@ -7,10 +7,14 @@ page is **design only**.
 - a single-repo deterministic CLI with human and JSON output, fingerprints,
   exit codes and scan limits;
 - a **local stdio MCP adapter** (`repotruth/src/mcp/`) with one tool,
-  `audit_repository`.
+  `audit_repository`;
+- a **local fleet dashboard** (`repotruth/src/fleet/`) with persisted runs,
+  change tracking, and a read-only GitHub App source adapter. The adapter is
+  tested against a mocked GitHub API only and has not yet been connected to a
+  live installation.
 
-**Not built:** any hosted, network-reachable or paid API; the GitHub App;
-fleet view; AI review; auto-fix.
+**Not built:** any hosted, network-reachable or paid API; webhooks or
+scheduled scans; check-run posting; AI review; auto-fix.
 
 All phases reuse `auditRepository(root, options) → AuditResult` from
 `repotruth/src/audit.ts`. Adapters must not import rule internals.
