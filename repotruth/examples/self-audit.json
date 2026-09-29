@@ -1,0 +1,269 @@
+{
+  "schemaVersion": "1.0.0",
+  "tool": {
+    "name": "repotruth",
+    "version": "0.1.0"
+  },
+  "target": {
+    "name": "galacticfederation"
+  },
+  "durationMs": 94,
+  "stats": {
+    "filesIndexed": 47,
+    "filesRead": 40,
+    "bytesRead": 136901
+  },
+  "limits": {
+    "maxFiles": 5000,
+    "maxFileBytes": 1048576,
+    "maxTotalBytes": 52428800,
+    "timeoutMs": 30000,
+    "truncated": false,
+    "notes": []
+  },
+  "coverage": {
+    "evaluated": [
+      {
+        "area": "ci: GitHub Actions",
+        "detail": "5 workflow file(s) parsed structurally"
+      },
+      {
+        "area": "setup: README",
+        "detail": "2 README file(s): setup commands, declared language, license statement"
+      },
+      {
+        "area": "setup: license",
+        "detail": "LICENSE = Proprietary"
+      },
+      {
+        "area": "docs: relative links",
+        "detail": "6 Markdown file(s) at root, docs/, .github/"
+      },
+      {
+        "area": "js/ts: relative imports",
+        "detail": "24 file(s); relative specifiers only"
+      },
+      {
+        "area": "claims: comments & README",
+        "detail": "simulation markers and unbenchmarked superlatives in 25 source file(s) and README"
+      }
+    ],
+    "notEvaluated": [
+      {
+        "area": "ci: dependabot config",
+        "detail": "dependabot.yml is not checked in this version"
+      }
+    ]
+  },
+  "skipped": [],
+  "summary": {
+    "total": 13,
+    "bySeverity": {
+      "info": 2,
+      "low": 3,
+      "medium": 4,
+      "high": 4
+    },
+    "byStatus": {
+      "finding": 8,
+      "needs-review": 5
+    }
+  },
+  "findings": [
+    {
+      "ruleId": "ci.stack-mismatch",
+      "title": "CI uses python tooling but the repository has no python project",
+      "severity": "medium",
+      "confidence": "medium",
+      "status": "finding",
+      "location": {
+        "path": ".github/workflows/ci.yml",
+        "line": 14
+      },
+      "evidence": "actions/setup-python@v5",
+      "explanation": "job \"quality\" step #2 sets up or runs python tools, but no python source files or manifests were found in the scanned tree. Such steps usually check nothing (e.g. a linter over zero files) and give a false signal of coverage.",
+      "suggestion": "Replace these steps with checks for the languages the repository actually contains, or add the missing python project if it was expected.",
+      "fingerprint": "1e96833b7c3c55f6"
+    },
+    {
+      "ruleId": "ci.masked-failure",
+      "title": "CI step masks failure of an install command",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "finding",
+      "location": {
+        "path": ".github/workflows/ci.yml",
+        "line": 18
+      },
+      "evidence": "pip install ruff pytest bandit || true",
+      "explanation": "`|| true` hides installation failures (job \"quality\" step \"Install dev tools\"); later steps may then run without their tools while the job still passes.",
+      "suggestion": "Remove `|| true` or handle the specific expected failure explicitly.",
+      "fingerprint": "27edeceaf79e35fe"
+    },
+    {
+      "ruleId": "ci.masked-failure",
+      "title": "CI step masks failure of a test/lint/scan command",
+      "severity": "high",
+      "confidence": "high",
+      "status": "finding",
+      "location": {
+        "path": ".github/workflows/ci.yml",
+        "line": 20
+      },
+      "evidence": "ruff check . || true",
+      "explanation": "`ruff check .` is a test/lint/scan command, but `|| true` makes the step succeed even when it fails, so this check can never turn CI red (job \"quality\" step \"Lint (ruff)\").",
+      "suggestion": "Remove `|| true`. If the check is not ready to gate merges, run it in a separate, explicitly non-blocking job and say so in the job name.",
+      "fingerprint": "51736896e83a598d"
+    },
+    {
+      "ruleId": "ci.masked-failure",
+      "title": "CI step masks failure of a test/lint/scan command",
+      "severity": "high",
+      "confidence": "high",
+      "status": "finding",
+      "location": {
+        "path": ".github/workflows/ci.yml",
+        "line": 22
+      },
+      "evidence": "bandit -r . -ll || true",
+      "explanation": "`bandit -r . -ll` is a test/lint/scan command, but `|| true` makes the step succeed even when it fails, so this check can never turn CI red (job \"quality\" step \"Security scan (bandit)\").",
+      "suggestion": "Remove `|| true`. If the check is not ready to gate merges, run it in a separate, explicitly non-blocking job and say so in the job name.",
+      "fingerprint": "3bab8451400687ac"
+    },
+    {
+      "ruleId": "ci.masked-failure",
+      "title": "CI step masks failure of a test/lint/scan command",
+      "severity": "high",
+      "confidence": "high",
+      "status": "finding",
+      "location": {
+        "path": ".github/workflows/ci.yml",
+        "line": 24
+      },
+      "evidence": "pytest --tb=short || true",
+      "explanation": "`pytest --tb=short` is a test/lint/scan command, but `|| true` makes the step succeed even when it fails, so this check can never turn CI red (job \"quality\" step \"Tests (pytest)\").",
+      "suggestion": "Remove `|| true`. If the check is not ready to gate merges, run it in a separate, explicitly non-blocking job and say so in the job name.",
+      "fingerprint": "b50eba1cd2df6825"
+    },
+    {
+      "ruleId": "ci.workflow-empty",
+      "title": "Workflow file is empty",
+      "severity": "low",
+      "confidence": "high",
+      "status": "finding",
+      "location": {
+        "path": ".github/workflows/security-scan.yml",
+        "line": 1
+      },
+      "evidence": "(0 non-whitespace bytes)",
+      "explanation": "An empty workflow defines no jobs; GitHub reports it as an invalid workflow and nothing runs. If a scan was meant to live here, it is not running.",
+      "suggestion": "Delete the file or restore the intended workflow content.",
+      "fingerprint": "500695a7ee65116b"
+    },
+    {
+      "ruleId": "js.unresolved-import",
+      "title": "Relative import \"./batch_uploader\" does not resolve to any file",
+      "severity": "high",
+      "confidence": "high",
+      "status": "finding",
+      "location": {
+        "path": "automation/neuromorphic_engine.ts",
+        "line": 4
+      },
+      "evidence": "import { AutomationCodexBatchUploader } from './batch_uploader';",
+      "explanation": "No file matches \"./batch_uploader\" relative to `automation` (tried the exact path, common JS/TS extensions, .js→.ts mapping, and index files). Loading this module will fail with a module-not-found error.",
+      "suggestion": "Add the missing module, fix the path, or remove the import and the code that depends on it.",
+      "fingerprint": "f9f3c543d99ed399"
+    },
+    {
+      "ruleId": "claim.unverified-superlative",
+      "title": "Comparative performance claim: \"Better than llama.cpp\"",
+      "severity": "info",
+      "confidence": "low",
+      "status": "needs-review",
+      "location": {
+        "path": "automation/qentropy_core.c",
+        "line": 4
+      },
+      "evidence": "* Better than llama.cpp with quantum optimization",
+      "explanation": "RepoTruth found no way to verify this comparison statically. Such claims should be backed by a reproducible benchmark in the repository.",
+      "suggestion": "Link a benchmark (method, hardware, numbers) or remove the claim.",
+      "fingerprint": "ef9e6291e7046600"
+    },
+    {
+      "ruleId": "claim.simulation-marker",
+      "title": "5 comment(s) describe behaviour as simulated/placeholder",
+      "severity": "low",
+      "confidence": "medium",
+      "status": "needs-review",
+      "location": {
+        "path": "automation/qentropy_core.c",
+        "line": 167
+      },
+      "evidence": "L167: // Simulate quantum gate application | L202: // Simulate inference with energy tracking | L220: // Simulate logit calculation | L316: // Simulate model loading",
+      "explanation": "The code's own comments say parts of it are simulated, stubbed, or for demo only. If the README or file header presents this as a working feature, the claim is not backed by this code.",
+      "suggestion": "Label the file as a prototype/demo, or replace the simulated sections with real implementations and tests.",
+      "fingerprint": "89089d4462cec9ec"
+    },
+    {
+      "ruleId": "docs.broken-relative-link",
+      "title": "Link to missing file: CODE_OF_CONDUCT.md",
+      "severity": "low",
+      "confidence": "high",
+      "status": "finding",
+      "location": {
+        "path": "CONTRIBUTING.md",
+        "line": 9
+      },
+      "evidence": "CODE_OF_CONDUCT.md",
+      "explanation": "The link resolves to `CODE_OF_CONDUCT.md`, which does not exist in the repository.",
+      "suggestion": "Add the referenced file or fix/remove the link.",
+      "fingerprint": "23a91743a1cc189f"
+    },
+    {
+      "ruleId": "setup.readme-manifest-missing",
+      "title": "README setup commands need package.json, which is missing",
+      "severity": "medium",
+      "confidence": "medium",
+      "status": "needs-review",
+      "location": {
+        "path": "README.md",
+        "line": 33
+      },
+      "evidence": "npm install | npm start | npm test | npm run build",
+      "explanation": "These commands run in the repository root, which has no package.json, so following the README fails. A package.json exists elsewhere (repotruth/package.json); the README may just be missing a `cd`.",
+      "suggestion": "Point the instructions at the directory that actually contains the manifest.",
+      "fingerprint": "9412dc78e5965849"
+    },
+    {
+      "ruleId": "setup.license-conflict",
+      "title": "README says MIT, but LICENSE is Proprietary",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "needs-review",
+      "location": {
+        "path": "README.md",
+        "line": 55
+      },
+      "evidence": "README.md: \"This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.\" vs LICENSE: Proprietary",
+      "explanation": "The README's license statement names MIT, while LICENSE matches Proprietary text. Users cannot tell which terms apply. Which one is correct is a legal/owner decision.",
+      "suggestion": "Have the copyright owner decide the intended license and align the README and LICENSE. RepoTruth never changes license files automatically.",
+      "fingerprint": "18a030044a8adb9e"
+    },
+    {
+      "ruleId": "claim.unverified-superlative",
+      "title": "Comparative performance claim: \"better than X\"",
+      "severity": "info",
+      "confidence": "low",
+      "status": "needs-review",
+      "location": {
+        "path": "repotruth/README.md",
+        "line": 70
+      },
+      "evidence": "| `claim.unverified-superlative` | \"better than X\", \"10x faster\", \"world's first\" in README or comments | `info`/`needs-review`. |",
+      "explanation": "RepoTruth found no way to verify this comparison statically. Such claims should be backed by a reproducible benchmark in the repository.",
+      "suggestion": "Link a benchmark (method, hardware, numbers) or remove the claim.",
+      "fingerprint": "286f26ec1eb5a112"
+    }
+  ]
+}
