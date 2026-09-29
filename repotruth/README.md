@@ -192,9 +192,12 @@ from a scanned repository is ever executed.
 
 ```bash
 cd repotruth && npm ci && npm run build
-node dist/src/fleet/bin.js --allowed-root /ABSOLUTE/PATH/TO/REPOS --data-dir ./.repotruth-data
+node dist/src/fleet/bin.js --allowed-root ~/code --data-dir ./.repotruth-data
 # open http://127.0.0.1:4178
 ```
+
+`--allowed-root` must be an existing directory; the command fails with the
+offending path if it is not.
 
 - **Access:** the dashboard binds to 127.0.0.1 only. It is a single-operator
   local tool, not a multi-user authenticated service. Write requests need the
@@ -212,12 +215,34 @@ node dist/src/fleet/bin.js --allowed-root /ABSOLUTE/PATH/TO/REPOS --data-dir ./.
     were fixed.
 - **GitHub App (optional, read-only).** Set `REPOTRUTH_GH_APP_ID`,
   `REPOTRUTH_GH_INSTALLATION_ID` and `REPOTRUTH_GH_PRIVATE_KEY_FILE`. The App
-  needs repository permissions **Contents: read** and **Metadata: read** only;
-  no webhook is required.
+  needs repository permissions **Contents: read** and **Metadata: read** only.
   - The dashboard can then list and select the installation's repositories.
   - Each scan downloads one commit's tarball to a temporary directory (size-,
     entry- and decompression-capped; links and unsafe paths are not
     extracted) and deletes it afterwards.
+  - A scan always audits the repository's default branch, and that commit is
+    recorded on the run.
+
+### Webhooks (optional)
+
+`--webhook-secret-file <file>` (or `REPOTRUTH_GH_WEBHOOK_SECRET_FILE`) turns on
+`POST /webhooks` **on the same loopback listener** — no new port, no network
+exposure. Point the App's webhook URL at it through a tunnel if GitHub must
+reach it; a tunnel breaks the `Host` allow-list, so use one that preserves the
+local host header or terminate in front of it.
+
+- Every delivery must carry a valid `X-Hub-Signature-256`; the signature is
+  checked against the exact request bytes with a constant-time compare before
+  anything is parsed, and a missing or wrong signature gets `400` with no
+  detail about which part failed.
+- `X-GitHub-Delivery` IDs are remembered, so a replayed delivery is answered
+  with an idempotent `200` and starts no second scan.
+- Only `push` is handled, and only for a repository already selected in this
+  fleet — a delivery never adds one. A push to a branch other than the default
+  branch, or a branch deletion, is acknowledged and ignored, because the scan
+  would have audited the default branch instead.
+- The dashboard token is not required here (GitHub cannot hold it), and the
+  token-protected endpoints are unchanged.
 
 ## Rules
 
