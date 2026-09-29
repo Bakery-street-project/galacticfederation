@@ -115,3 +115,28 @@ points to one.
 |---|---|---|
 | `.github/workflows/ci.yml` | Disabled in GitHub. Runs Python ruff/bandit/pytest with every step masked by `\|\| true` in a repo with no Python. It can never fail and checks nothing. | **Delete it**, since `repotruth.yml` covers the only real code. Alternatively, rewrite it to lint and compile `automation/` (e.g. `tsc --noEmit`, `cc -fsyntax-only`) with no masking. In that case expect `neuromorphic_engine.ts` to fail on its missing import until that's resolved. |
 | `.github/workflows/security-scan.yml` | 0 bytes. Registered, `disabled_manually`. `actionlint`: "workflow is empty". | **Delete it**, or replace it with an intended scanner such as CodeQL default setup, which already appears as a dynamic workflow. An empty file runs nothing and shows as invalid. |
+
+## MCP adapter (local, stdio)
+
+Plan as implemented: the adapter calls `auditRepository()` from
+`repotruth/src/audit.ts`, the same function the CLI calls. It doesn't shell
+out to the CLI and doesn't duplicate any rule. The adapter code is in
+`repotruth/src/mcp/`:
+- `policy.ts`: allowed-root canonicalization and target resolution;
+- `tool.ts`: zod input/output schemas, a transport-independent handler, and
+  response bounding;
+- `server.ts`: tool registration and a request queue;
+- `bin.ts`: stdio entry point and configuration.
+
+SDK choice (checked 2026-09-29):
+- `@modelcontextprotocol/sdk` 1.31.0 is the v1 monolith. It pulls in
+  express, hono, cors and other HTTP-transport packages this server doesn't
+  need.
+- `@modelcontextprotocol/server` 2.2.0 is the documented stable v2 line (MCP
+  spec 2026-07-28). Its runtime dependencies are only
+  `@modelcontextprotocol/core` and `zod`.
+
+The v2 server is used, pinned exactly. `@modelcontextprotocol/client` 2.2.0
+is a dev dependency for the stdio integration tests.
+
+No AI-provider SDK, API key, network listener or model call was added.
