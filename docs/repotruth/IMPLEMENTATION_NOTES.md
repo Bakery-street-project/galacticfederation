@@ -141,10 +141,10 @@ is a dev dependency for the stdio integration tests.
 
 No AI-provider SDK, API key, network listener or model call was added.
 
-## Fleet: webhook receiver
+## Fleet: webhooks and check runs
 
-Implemented 2026-09-29. One new opt-in module and two small wiring changes; no
-new dependency, no new listener, no new storage.
+Implemented 2026-09-29. Two new opt-in modules and three small wiring changes;
+no new dependency, no new listener, no new storage.
 
 - `repotruth/src/fleet/webhooks.ts` — signature verification, replay
   protection, and event routing, with no HTTP code in it. `verifySignature()`
@@ -153,15 +153,29 @@ new dependency, no new listener, no new storage.
   wrong `sha256=` prefix, a non-hex digest and a wrong digest are one
   indistinguishable failure. Nothing is parsed or enqueued before that compare
   passes.
+- `repotruth/src/fleet/checks.ts` — finding → check-run mapping and the
+  conclusion policy.
 - `repotruth/src/fleet/web.ts` — `POST /webhooks` on the existing loopback
   listener, read as a raw `Buffer` (`readBodyBuffer`; `readBody` now delegates
   to it with the same 16 KB cap and error). It sits before the form-parse and
   token branch, because GitHub cannot hold the per-process dashboard token.
+- `repotruth/src/fleet/service.ts` — a completed GitHub run posts its own
+  check run when a reporter is configured. The reporter is called after the
+  status is `completed` and its failure is caught: a check run is an outbound
+  notification, never a precondition of a scan. A failure is appended to
+  `run.source.notes`, so it survives in `fleet.json` and is visible through
+  `/api/runs/:id`.
+- `repotruth/src/fleet/sources/github.ts` — `createCheckRun()` posts through
+  the existing `api()` helper, so token refresh, rate-limit backoff, the 5xx
+  retry and the host allow-list all apply unchanged. `send()` gained a `json`
+  option. A `NOT_ACCESSIBLE`/`API_ERROR` from this one endpoint appends a hint
+  about the `checks: write` permission; the error codes and message formats
+  used by existing tests are untouched.
 
 Decisions worth recording:
 
 - **Scope: the default branch only.** A fleet scan resolves the repository's
-  default branch, so a scan triggered by a feature-branch push would describe a
+  default branch, so an annotation for a feature-branch push would describe a
   commit nobody audited. A push to another branch is acknowledged (`200`) and
   ignored rather than treated as an error — it is a valid delivery, just not an
   interesting one.
@@ -171,8 +185,12 @@ Decisions worth recording:
   covers redelivery and a GitHub retry, not a process restart; a restart costs
   at most one redundant scan, which the active-run check in `FleetService.scan`
   collapses anyway.
-- **Off unless asked for.** `--webhook-secret-file` defaults to off, so a
-  read-only App install keeps working and the endpoint is not even routed.
+- **No SDK, no `child_process`, plain `fetch`.** The check-run POST is one
+  request with a JSON body; adding the REST SDK for it would pull a dependency
+  tree larger than the module that uses it.
+- **Both features are off unless asked for.** `--webhook-secret-file` and
+  `--check-runs` default to off, so a read-only App install keeps working and
+  never needs `checks: write`.
 - **Operational caveat.** The dashboard is loopback-only and enforces a `Host`
   allow-list of `127.0.0.1:<port>`, `localhost:<port>` and `[::1]:<port>`. A
   tunnel (ngrok, cloudflared, SSH) rewrites the `Host` header, and GitHub's
@@ -184,4 +202,8 @@ Decisions worth recording:
   not accessible" left the user with nothing to act on, and the README shipped a
   literal `/ABSOLUTE/PATH/TO/REPOS` placeholder that was being copied verbatim.
 
-Tests: `repotruth/test/webhooks.test.ts` (24) on top of the existing suite.
+Tests: `repotruth/test/webhooks.test.ts` (24) and `repotruth/test/checks.test.ts`
+(13), on top of the existing suite — 137 total, all passing. The GitHub mock
+(`test/githubmock.ts`) grew a `POST /repos/{owner}/{name}/check-runs` route
+that records the payload and can be forced to 403 through the existing
+`overrides` hook.

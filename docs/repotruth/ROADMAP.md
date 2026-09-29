@@ -13,11 +13,12 @@ page is **design only**.
   tested against a mocked GitHub API only and has not yet been connected to a
   live installation;
 - opt-in **webhook ingestion** (HMAC-verified, replay-protected, default branch
-  only, served by the existing loopback listener).
+  only, served by the existing loopback listener) and **check-run posting**
+  (advisory by default, at most 50 annotations, never sends finding evidence).
 
 **Not built:** any hosted, network-reachable or paid API; scheduled scans;
-check-run posting; AI review; auto-fix. Webhook ingestion is built, but it is
-opt-in and loopback-only, and not a substitute for §1b: nothing here is
+AI review; auto-fix. Webhook ingestion and check-run posting are built, but they
+are opt-in, loopback-only, and not a substitute for §1b: nothing here is
 reachable from the network unless the operator puts a tunnel in front of it
 themselves.
 
@@ -81,6 +82,24 @@ substitute.
 - Served at `POST /webhooks` on the **existing** loopback listener
   (`repotruth/src/fleet/web.ts`); the token-protected form endpoints are
   untouched. Enabled by `--webhook-secret-file`.
+
+### 2b. Check runs: BUILT (`repotruth/src/fleet/checks.ts`)
+
+- Enabled by `--check-runs advisory|gating`; off by default, so
+  `checks: write` is never required silently. `advisory` reports `neutral` and
+  cannot fail a build; `gating` fails on a high-severity finding and stays
+  `neutral` on an incomplete scan, because an unevaluated repository proves
+  neither clean nor dirty.
+- Up to 50 annotations (GitHub's cap) mapping `location` → file/line, highest
+  severity first and otherwise stable, so repeated runs agree. The count of
+  unannotated findings is stated in the summary, and the counts above it are
+  always complete.
+- Repository-derived text never reaches GitHub beyond a path: finding evidence
+  is excluded, and markdown-significant characters are stripped from titles and
+  messages.
+- A run is only reported on the commit it actually audited. A posting failure
+  never fails the scan; it is appended to the run's source notes and persists in
+  `fleet.json`.
 
 ## 3. Fleet view
 

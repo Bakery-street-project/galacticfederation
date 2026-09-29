@@ -213,9 +213,11 @@ offending path if it is not.
     no unusual skips) and evaluated the same areas.
   - Otherwise the page says the missing findings were not seen, not that they
     were fixed.
-- **GitHub App (optional, read-only).** Set `REPOTRUTH_GH_APP_ID`,
+- **GitHub App (optional).** Set `REPOTRUTH_GH_APP_ID`,
   `REPOTRUTH_GH_INSTALLATION_ID` and `REPOTRUTH_GH_PRIVATE_KEY_FILE`. The App
-  needs repository permissions **Contents: read** and **Metadata: read** only.
+  needs repository permissions **Contents: read** and **Metadata: read**; add
+  **Checks: write** only if you enable check runs below. Never grant
+  `contents: write` or `pull_requests: write`.
   - The dashboard can then list and select the installation's repositories.
   - Each scan downloads one commit's tarball to a temporary directory (size-,
     entry- and decompression-capped; links and unsafe paths are not
@@ -243,6 +245,20 @@ local host header or terminate in front of it.
   would have audited the default branch instead.
 - The dashboard token is not required here (GitHub cannot hold it), and the
   token-protected endpoints are unchanged.
+
+### Check runs (optional)
+
+`--check-runs advisory` (or `gating`) posts one check run per completed GitHub
+scan, and requires the App permission **Checks: write**.
+
+- `advisory` (default) reports `neutral` and never blocks a merge; `gating` fails
+  on a high-severity finding and stays `neutral` when the scan was incomplete.
+- The summary carries counts, coverage and the commit; at most 50 annotations
+  map findings to file and line. Finding evidence — untrusted repository text —
+  is never sent, and the number of unannotated findings is stated in the
+  summary.
+- A run is only reported on the commit it actually audited. A posting failure
+  never fails the scan; it is recorded in the run's source notes.
 
 ## Rules
 

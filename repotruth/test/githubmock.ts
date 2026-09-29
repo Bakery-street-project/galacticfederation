@@ -16,6 +16,11 @@ export interface MockRepo {
 
 type Override = (req: IncomingMessage, res: ServerResponse) => boolean;
 
+export interface RecordedCheckRun {
+  repo: string;
+  payload: Record<string, unknown>;
+}
+
 export interface GitHubMock {
   url: string;
   privateKeyPem: string;
@@ -29,6 +34,8 @@ export interface GitHubMock {
   overrides: Override[];
   tokenTtlMs: number;
   pageSize: number;
+  /** Check runs created through POST /repos/{owner}/{name}/check-runs. */
+  checkRuns: RecordedCheckRun[];
   close(): Promise<void>;
 }
 
@@ -57,6 +64,7 @@ export async function startGitHubMock(repos: MockRepo[]): Promise<GitHubMock> {
     overrides: [],
     tokenTtlMs: 60 * 60_000,
     pageSize: 2,
+    checkRuns: [],
     close: async () => {},
   };
   const json = (res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) => {
@@ -64,12 +72,31 @@ export async function startGitHubMock(repos: MockRepo[]): Promise<GitHubMock> {
     res.end(JSON.stringify(body));
   };
   const repoJson = (r: MockRepo) => ({ full_name: r.fullName, private: true, default_branch: r.defaultBranch ?? 'main', archived: false });
+  const readBody = async (req: IncomingMessage): Promise<Record<string, unknown>> => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req as AsyncIterable<Buffer>) chunks.push(chunk);
+    try {
+      return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  };
 
-  const server: Server = createServer((req, res) => {
+  const server: Server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', mock.url);
     mock.log.push(`${req.method} ${url.pathname}${url.search}`);
     const next = mock.overrides[0];
     if (next && next(req, res)) { mock.overrides.shift(); return; }
+
+    const checkRun = /^\/repos\/([^/]+)\/([^/]+)\/check-runs$/.exec(url.pathname);
+    if (checkRun && req.method === 'POST') {
+      const repo = mock.repos.get(`${checkRun[1]}/${checkRun[2]}`.toLowerCase());
+      if (!repo || repo.hidden) return json(res, 404, { message: 'Not Found' });
+      const payload = await readBody(req);
+      mock.checkRuns.push({ repo: repo.fullName, payload });
+      const id = mock.checkRuns.length;
+      return json(res, 201, { id, html_url: `${mock.url}/${repo.fullName}/runs/${id}` });
+    }
 
     if (url.pathname.startsWith('/codeload/')) {
       mock.codeloadAuth.push(req.headers.authorization);
