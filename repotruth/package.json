@@ -6,7 +6,8 @@
   "type": "module",
   "bin": {
     "repotruth": "dist/src/bin.js",
-    "repotruth-mcp": "dist/src/mcp/bin.js"
+    "repotruth-mcp": "dist/src/mcp/bin.js",
+    "repotruth-fleet": "dist/src/fleet/bin.js"
   },
   "engines": {
     "node": ">=22"
@@ -16,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test \"dist/test/**/*.test.js\"",
     "audit:self": "node dist/src/bin.js audit ..",
-    "mcp": "node dist/src/mcp/bin.js"
+    "mcp": "node dist/src/mcp/bin.js",
+    "fleet": "node dist/src/fleet/bin.js"
   },
   "license": "UNLICENSED",
   "devDependencies": {

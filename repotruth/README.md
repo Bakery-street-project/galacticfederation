@@ -166,6 +166,42 @@ Errors are tool results with `isError: true`, never a server crash:
 - **Diagnostics.** stderr gets one startup line and configuration errors.
   It never receives repository contents, paths or environment values.
 
+## Fleet dashboard (local, private)
+
+Audits several selected repositories, keeps run history, and shows what
+changed since the previous complete scan. It uses the same `auditRepository()`
+core as the CLI. Scanning is deterministic, with no model calls, and nothing
+from a scanned repository is ever executed.
+
+```bash
+cd repotruth && npm ci && npm run build
+node dist/src/fleet/bin.js --allowed-root /ABSOLUTE/PATH/TO/REPOS --data-dir ./.repotruth-data
+# open http://127.0.0.1:4178
+```
+
+- **Access:** the dashboard binds to 127.0.0.1 only. It is a single-operator
+  local tool, not a multi-user authenticated service. Write requests need the
+  per-process token that is printed on startup and embedded in the forms.
+- **Local repositories:** add paths inside `--allowed-root`. The commit is read
+  from `.git` without running git, and uncommitted changes are not detected.
+- **Data:** stored in `<data-dir>/fleet.json`, which holds repositories, runs,
+  findings, and short evidence excerpts. No repository copies are kept. To
+  reset, stop the service and delete that file.
+- **Change view:**
+  - New, continuing and resolved findings are keyed by finding fingerprint.
+  - "Resolved" is verified only when both runs are complete (no truncation,
+    no unusual skips) and evaluated the same areas.
+  - Otherwise the page says the missing findings were not seen, not that they
+    were fixed.
+- **GitHub App (optional, read-only).** Set `REPOTRUTH_GH_APP_ID`,
+  `REPOTRUTH_GH_INSTALLATION_ID` and `REPOTRUTH_GH_PRIVATE_KEY_FILE`. The App
+  needs repository permissions **Contents: read** and **Metadata: read** only;
+  no webhook is required.
+  - The dashboard can then list and select the installation's repositories.
+  - Each scan downloads one commit's tarball to a temporary directory (size-,
+    entry- and decompression-capped; links and unsafe paths are not
+    extracted) and deletes it afterwards.
+
 ## Rules
 
 Every finding carries: `ruleId`, `severity` (info/low/medium/high),
