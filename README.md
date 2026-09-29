@@ -1,5 +1,7 @@
 # galacticfederation
 
+> **RepoTruth CLI (MVP) lives in [`repotruth/`](repotruth/README.md).** The rest of this README predates it and has not been corrected; see `repotruth/examples/self-audit.txt` for known inconsistencies.
+
 The bakery-street-project/galacticfederation project aims to create comprehensive documentation that guides users from initial setup through advanced API integrations and AI tool usage. The plan includes:
 
 ## Vision

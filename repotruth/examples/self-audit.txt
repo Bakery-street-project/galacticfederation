@@ -1,0 +1,105 @@
+RepoTruth 0.1.0: audit of "galacticfederation"
+Indexed 47 files, read 40 (136901 bytes) in 87 ms. No repository code was executed.
+
+MEDIUM ci.stack-mismatch  .github/workflows/ci.yml:14
+  CI uses python tooling but the repository has no python project  [finding, confidence medium]
+  Evidence: actions/setup-python@v5
+  Why:      job "quality" step #2 sets up or runs python tools, but no python source files or manifests were found in the scanned tree. Such steps usually check nothing (e.g. a linter over zero files) and give a false signal of coverage.
+  Next:     Replace these steps with checks for the languages the repository actually contains, or add the missing python project if it was expected.
+  id:       1e96833b7c3c55f6
+
+MEDIUM ci.masked-failure  .github/workflows/ci.yml:18
+  CI step masks failure of an install command  [finding, confidence high]
+  Evidence: pip install ruff pytest bandit || true
+  Why:      `|| true` hides installation failures (job "quality" step "Install dev tools"); later steps may then run without their tools while the job still passes.
+  Next:     Remove `|| true` or handle the specific expected failure explicitly.
+  id:       27edeceaf79e35fe
+
+HIGH   ci.masked-failure  .github/workflows/ci.yml:20
+  CI step masks failure of a test/lint/scan command  [finding, confidence high]
+  Evidence: ruff check . || true
+  Why:      `ruff check .` is a test/lint/scan command, but `|| true` makes the step succeed even when it fails, so this check can never turn CI red (job "quality" step "Lint (ruff)").
+  Next:     Remove `|| true`. If the check is not ready to gate merges, run it in a separate, explicitly non-blocking job and say so in the job name.
+  id:       51736896e83a598d
+
+HIGH   ci.masked-failure  .github/workflows/ci.yml:22
+  CI step masks failure of a test/lint/scan command  [finding, confidence high]
+  Evidence: bandit -r . -ll || true
+  Why:      `bandit -r . -ll` is a test/lint/scan command, but `|| true` makes the step succeed even when it fails, so this check can never turn CI red (job "quality" step "Security scan (bandit)").
+  Next:     Remove `|| true`. If the check is not ready to gate merges, run it in a separate, explicitly non-blocking job and say so in the job name.
+  id:       3bab8451400687ac
+
+HIGH   ci.masked-failure  .github/workflows/ci.yml:24
+  CI step masks failure of a test/lint/scan command  [finding, confidence high]
+  Evidence: pytest --tb=short || true
+  Why:      `pytest --tb=short` is a test/lint/scan command, but `|| true` makes the step succeed even when it fails, so this check can never turn CI red (job "quality" step "Tests (pytest)").
+  Next:     Remove `|| true`. If the check is not ready to gate merges, run it in a separate, explicitly non-blocking job and say so in the job name.
+  id:       b50eba1cd2df6825
+
+LOW    ci.workflow-empty  .github/workflows/security-scan.yml:1
+  Workflow file is empty  [finding, confidence high]
+  Evidence: (0 non-whitespace bytes)
+  Why:      An empty workflow defines no jobs; GitHub reports it as an invalid workflow and nothing runs. If a scan was meant to live here, it is not running.
+  Next:     Delete the file or restore the intended workflow content.
+  id:       500695a7ee65116b
+
+HIGH   js.unresolved-import  automation/neuromorphic_engine.ts:4
+  Relative import "./batch_uploader" does not resolve to any file  [finding, confidence high]
+  Evidence: import { AutomationCodexBatchUploader } from './batch_uploader';
+  Why:      No file matches "./batch_uploader" relative to `automation` (tried the exact path, common JS/TS extensions, .js→.ts mapping, and index files). Loading this module will fail with a module-not-found error.
+  Next:     Add the missing module, fix the path, or remove the import and the code that depends on it.
+  id:       f9f3c543d99ed399
+
+INFO   claim.unverified-superlative  automation/qentropy_core.c:4
+  Comparative performance claim: "Better than llama.cpp"  [needs-review, confidence low]
+  Evidence: * Better than llama.cpp with quantum optimization
+  Why:      RepoTruth found no way to verify this comparison statically. Such claims should be backed by a reproducible benchmark in the repository.
+  Next:     Link a benchmark (method, hardware, numbers) or remove the claim.
+  id:       ef9e6291e7046600
+
+LOW    claim.simulation-marker  automation/qentropy_core.c:167
+  5 comment(s) describe behaviour as simulated/placeholder  [needs-review, confidence medium]
+  Evidence: L167: // Simulate quantum gate application | L202: // Simulate inference with energy tracking | L220: // Simulate logit calculation | L316: // Simulate model loading
+  Why:      The code's own comments say parts of it are simulated, stubbed, or for demo only. If the README or file header presents this as a working feature, the claim is not backed by this code.
+  Next:     Label the file as a prototype/demo, or replace the simulated sections with real implementations and tests.
+  id:       89089d4462cec9ec
+
+LOW    docs.broken-relative-link  CONTRIBUTING.md:9
+  Link to missing file: CODE_OF_CONDUCT.md  [finding, confidence high]
+  Evidence: CODE_OF_CONDUCT.md
+  Why:      The link resolves to `CODE_OF_CONDUCT.md`, which does not exist in the repository.
+  Next:     Add the referenced file or fix/remove the link.
+  id:       23a91743a1cc189f
+
+MEDIUM setup.readme-manifest-missing  README.md:33
+  README setup commands need package.json, which is missing  [needs-review, confidence medium]
+  Evidence: npm install | npm start | npm test | npm run build
+  Why:      These commands run in the repository root, which has no package.json, so following the README fails. A package.json exists elsewhere (repotruth/package.json); the README may just be missing a `cd`.
+  Next:     Point the instructions at the directory that actually contains the manifest.
+  id:       9412dc78e5965849
+
+MEDIUM setup.license-conflict  README.md:55
+  README says MIT, but LICENSE is Proprietary  [needs-review, confidence high]
+  Evidence: README.md: "This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details." vs LICENSE: Proprietary
+  Why:      The README's license statement names MIT, while LICENSE matches Proprietary text. Users cannot tell which terms apply. Which one is correct is a legal/owner decision.
+  Next:     Have the copyright owner decide the intended license and align the README and LICENSE. RepoTruth never changes license files automatically.
+  id:       18a030044a8adb9e
+
+INFO   claim.unverified-superlative  repotruth/README.md:70
+  Comparative performance claim: "better than X"  [needs-review, confidence low]
+  Evidence: | `claim.unverified-superlative` | "better than X", "10x faster", "world's first" in README or comments | `info`/`needs-review`. |
+  Why:      RepoTruth found no way to verify this comparison statically. Such claims should be backed by a reproducible benchmark in the repository.
+  Next:     Link a benchmark (method, hardware, numbers) or remove the claim.
+  id:       286f26ec1eb5a112
+
+Coverage
+  evaluated      ci: GitHub Actions: 5 workflow file(s) parsed structurally
+  evaluated      setup: README: 2 README file(s): setup commands, declared language, license statement
+  evaluated      setup: license: LICENSE = Proprietary
+  evaluated      docs: relative links: 6 Markdown file(s) at root, docs/, .github/
+  evaluated      js/ts: relative imports: 24 file(s); relative specifiers only
+  evaluated      claims: comments & README: simulation markers and unbenchmarked superlatives in 25 source file(s) and README
+  NOT evaluated  ci: dependabot config: dependabot.yml is not checked in this version
+
+Summary: 13 total: 4 high, 4 medium, 3 low, 2 info (8 finding, 5 needs-review).
+Threshold --fail-on low: 11 finding(s) at or above it.

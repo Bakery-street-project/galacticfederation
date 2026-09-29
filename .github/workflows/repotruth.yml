@@ -1,0 +1,38 @@
+name: RepoTruth CLI
+
+on:
+  push:
+    paths:
+      - 'repotruth/**'
+      - '.github/workflows/repotruth.yml'
+  pull_request:
+    paths:
+      - 'repotruth/**'
+      - '.github/workflows/repotruth.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: repotruth
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: repotruth/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # Report-only self-audit of this repository. `--fail-on none` is an
+      # explicit, documented choice: the legacy findings are tracked for owner
+      # review rather than gating the CLI's own CI. The step still fails on
+      # scanner errors (exit code 2).
+      - name: Self-audit (report only)
+        run: node dist/src/bin.js audit .. --fail-on none

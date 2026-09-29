@@ -13,7 +13,7 @@ project that is most realistic to build and sell.
 | `automation/neuromorphic_engine.ts` | "Automation that learns and evolves" | Imports `./batch_uploader`, which doesn't exist, so it can't run. If it did run, it would push a workflow to 5 repos, and that workflow only `echo`es text. |
 | `.github/workflows/ci.yml` | Lint, security scan, tests | Every step ends in `\|\| true`, so CI always passes. It also runs Python tools against a C/TS repo. |
 | `README.md` | TypeScript project, `npm install` | There is no `package.json`. The text is generated boilerplate, and it says MIT while `LICENSE` is proprietary. |
-| Git history | 38 commits | They are mostly automated "RepoPilot AI Deployment" and "trigger CI" commits. |
+| Git history | 38 commits | *Corrected after verification:* 11 of 38 follow automation patterns (5 tagged "RepoPilot AI Deployment", 6 "trigger CI" commits by `Kilo CI`); most others are short templated docs/ci messages under the owner's name. Provenance of those can't be established from git alone. |
 
 **Conclusion:** the only real asset here isn't the C or TS code. It's the
 **pattern of fleet automation**: one tool (RepoPilot, githubupdater-tools,
