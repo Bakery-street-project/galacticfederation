@@ -35,6 +35,14 @@ export class RepoIndex {
   readonly skipped: SkippedEntry[] = [];
   readonly notes: string[] = [];
   truncated = false;
+  /**
+   * True when the *file list* is incomplete: something on disk was never
+   * offered to `files`, so a path missing from the index may still exist.
+   * Deliberately narrower than `truncated`, which also covers the read-byte
+   * budget and rule timeouts — in those cases every file was listed, so
+   * absence from the index really is absence from the repo.
+   */
+  incompleteIndex = false;
   filesRead = 0;
   bytesRead = 0;
   private readonly cache = new Map<string, string | null>();
@@ -141,6 +149,8 @@ export async function discover(root: string, limits: Limits, deadline: number): 
     } catch (err) {
       if (dir === '') throw err;
       index.skip(dir, `unreadable directory: ${errCode(err)}`);
+      // Never walked, so files beneath it are unknown to us.
+      index.incompleteIndex = true;
       continue;
     }
     for (const name of names) {
@@ -150,6 +160,8 @@ export async function discover(root: string, limits: Limits, deadline: number): 
         st = await lstat(path.join(root, rel));
       } catch (err) {
         index.skip(rel, `unreadable: ${errCode(err)}`);
+        // Stat failed, so whether this is a file at all is unknown to us.
+        index.incompleteIndex = true;
         continue;
       }
       if (st.isSymbolicLink()) {
@@ -171,6 +183,7 @@ export async function discover(root: string, limits: Limits, deadline: number): 
       if (index.files.size >= limits.maxFiles) {
         if (!index.truncated) index.notes.push(`maxFiles (${limits.maxFiles}) reached; remaining files were not indexed`);
         index.truncated = true;
+        index.incompleteIndex = true;
         return index;
       }
       index.files.set(rel, { path: rel, size: st.size, isSymlink: false });

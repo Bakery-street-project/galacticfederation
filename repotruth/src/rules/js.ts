@@ -12,11 +12,25 @@ const JS_TO_TS: Record<string, string[]> = {
 };
 const BUILD_DIRS = /^(dist|build|lib|out|es|esm|cjs|types)(\/|$)/;
 
-type Resolution = 'found' | 'missing' | 'unknown';
+/**
+ * `unknown` — we refuse to judge (traversal, or a target inside an ignored
+ * directory). `unverifiable` — the target is absent from an index whose file
+ * list is incomplete, so we cannot claim it is missing. Only the latter is
+ * something the caller must disclose, which is why they are separate.
+ */
+type Resolution = 'found' | 'missing' | 'unknown' | 'unverifiable';
 
-/** Resolves a relative specifier the way Node + TypeScript bundler/NodeNext resolution would, statically. */
+/**
+ * Resolves a relative specifier the way Node + TypeScript bundler/NodeNext
+ * resolution would, statically.
+ *
+ * `complete` says whether `has` can prove absence. Pass false when the file
+ * list was truncated: absence from an incomplete index is not evidence that
+ * the file is absent from the repository, so it resolves to 'unverifiable'
+ * rather than to a 'missing' claim we cannot support.
+ */
 export function resolveRelative(has: (p: string) => boolean, isDir: (p: string) => boolean,
-  ignored: (p: string) => boolean, fromFile: string, spec: string): Resolution {
+  ignored: (p: string) => boolean, fromFile: string, spec: string, complete = true): Resolution {
   const target = joinRel(dirname(fromFile), spec);
   if (target === null) return 'unknown';
   if (ignored(target)) return 'unknown';
@@ -30,7 +44,8 @@ export function resolveRelative(has: (p: string) => boolean, isDir: (p: string) 
     for (const ext of RESOLVE_EXTS) candidates.push(`${target}/index${ext}`);
     candidates.push(`${target}/package.json`);
   }
-  return candidates.some(has) ? 'found' : 'missing';
+  if (candidates.some(has)) return 'found';
+  return complete ? 'missing' : 'unverifiable';
 }
 
 export const jsRules: RuleModule = {
@@ -52,17 +67,19 @@ export const jsRules: RuleModule = {
       const text = await index.readText(ts);
       if (text && /"(paths|baseUrl|rootDirs)"\s*:/.test(text)) aliasNote = true;
     }
-    ctx.evaluated({
-      area: 'js/ts: relative imports',
-      detail: `${sources.length} file(s); relative specifiers only${aliasNote ? '; tsconfig path aliases present but NOT evaluated' : ''}`,
-    });
+    // An incomplete file list cannot prove absence. Unresolved imports are
+    // then counted and disclosed rather than reported, because a 'high'
+    // missing-file claim we cannot substantiate is worse than no claim.
+    const proveAbsence = !index.incompleteIndex;
+    let unverifiableImports = 0;
 
     for (const file of sources) {
       const src = await index.readText(file);
       if (src === null) continue;
       for (const ref of extractImports(src)) {
         if (!ref.specifier.startsWith('./') && !ref.specifier.startsWith('../') && ref.specifier !== '.' && ref.specifier !== '..') continue;
-        const res = resolveRelative((p) => index.has(p), (p) => index.isDir(p), (p) => index.isUnderIgnored(p), file, ref.specifier);
+        const res = resolveRelative((p) => index.has(p), (p) => index.isDir(p), (p) => index.isUnderIgnored(p), file, ref.specifier, proveAbsence);
+        if (res === 'unverifiable') { unverifiableImports++; continue; }
         if (res !== 'missing') continue;
         ctx.report({
           ruleId: 'js.unresolved-import',
@@ -77,11 +94,30 @@ export const jsRules: RuleModule = {
       }
     }
 
-    for (const pkg of pkgs) await checkPackageEntries(ctx, pkg);
+    const unverifiableEntries = await checkPackageEntries(ctx, pkgs);
+    const unverifiable = unverifiableImports + unverifiableEntries;
+    if (unverifiable > 0) {
+      ctx.notEvaluated({
+        area: 'js/ts: relative imports',
+        detail: `${unverifiable} unresolved reference(s) not reported: the file index is incomplete (maxFiles reached, or a path was unreadable), so absence from the index does not prove absence from the repository. Re-run with a higher maxFiles to verify them.`,
+      });
+    } else {
+      ctx.evaluated({
+        area: 'js/ts: relative imports',
+        detail: `${sources.length} file(s); relative specifiers only${aliasNote ? '; tsconfig path aliases present but NOT evaluated' : ''}`,
+      });
+    }
   },
 };
 
-async function checkPackageEntries(ctx: RuleContext, pkg: string): Promise<void> {
+/** Returns how many entry points could not be verified against an incomplete index. */
+async function checkPackageEntries(ctx: RuleContext, pkgs: string[]): Promise<number> {
+  const { index } = ctx;
+  let unverifiable = 0;
+  for (const pkg of pkgs) await checkPackage(ctx, pkg, () => unverifiable++);
+  return unverifiable;
+}
+async function checkPackage(ctx: RuleContext, pkg: string, onUnverifiable: () => void): Promise<void> {
   const { index } = ctx;
   const text = await index.readText(pkg);
   if (text === null) return;
@@ -117,6 +153,9 @@ async function checkPackageEntries(ctx: RuleContext, pkg: string): Promise<void>
     if (rel === null || index.has(rel) || index.isDir(rel)) continue;
     const underBuild = BUILD_DIRS.test(target.replace(/^\.\//, ''));
     if (underBuild && hasBuild) continue; // produced by the build script; absence before build is normal
+    // Both checks above read the manifest, not the file list, so they still hold
+    // on an incomplete index. Past here, absence would only be an index fact.
+    if (index.incompleteIndex) { onUnverifiable(); continue; }
     ctx.report({
       ruleId: 'js.missing-entry-point',
       title: `package.json "${field}" points to a missing file`,
