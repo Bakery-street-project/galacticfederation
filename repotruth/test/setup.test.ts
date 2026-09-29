@@ -32,8 +32,44 @@ describe('setup.readme-manifest-missing', () => {
     assert.deepEqual(byRule(r, 'setup.readme-manifest-missing'), []);
   });
 
-  it('lowers confidence when a manifest exists only in a subdirectory', async () => {
+  it('root instructions with only a nested package.json are a confirmed finding', async () => {
     const r = await auditFiles({ 'README.md': README_NPM, 'tools/package.json': '{}' });
+    const [f, ...rest] = byRule(r, 'setup.readme-manifest-missing');
+    assert.equal(rest.length, 0);
+    assert.equal(f!.status, 'finding');
+    assert.equal(f!.confidence, 'high');
+    assert.match(f!.explanation, /tools\/package\.json/);
+    assert.match(f!.suggestion, /cd tools/);
+  });
+
+  it('accepts instructions that cd into the nested package first', async () => {
+    const r = await auditFiles({
+      'README.md': '```bash\ngit clone https://example.com/org/x.git\ncd x\ncd repotruth\nnpm ci\nnpm test\n```\n',
+      'repotruth/package.json': '{}',
+    });
+    assert.deepEqual(byRule(r, 'setup.readme-manifest-missing'), []);
+  });
+
+  it('accepts root commands when the root has a package.json', async () => {
+    const r = await auditFiles({
+      'README.md': README_NPM + '\n```bash\nnpm start\nnpm run build\n```\n',
+      'package.json': '{"scripts":{"start":"node .","build":"tsc"}}',
+      'repotruth/package.json': '{}',
+    });
+    assert.deepEqual(byRule(r, 'setup.readme-manifest-missing'), []);
+  });
+
+  it('treats the git clone target directory as the README directory', async () => {
+    const r = await auditFiles({
+      'README.md': '```bash\ngit clone https://example.com/a/project.cd myclone\ncd myclone\nnpm install\n```\n',
+      'web/package.json': '{}',
+    });
+    const [f] = byRule(r, 'setup.readme-manifest-missing');
+    assert.equal(f!.status, 'finding');
+  });
+
+  it('lowers confidence when a cd target cannot be resolved', async () => {
+    const r = await auditFiles({ 'README.md': '```bash\ncd somewhere/else\nnpm install\n```\n' });
     const [f] = byRule(r, 'setup.readme-manifest-missing');
     assert.equal(f!.status, 'needs-review');
     assert.equal(f!.confidence, 'medium');

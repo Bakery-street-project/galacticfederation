@@ -7,11 +7,11 @@
   "target": {
     "name": "galacticfederation"
   },
-  "durationMs": 94,
+  "durationMs": 84,
   "stats": {
     "filesIndexed": 47,
     "filesRead": 40,
-    "bytesRead": 136901
+    "bytesRead": 147110
   },
   "limits": {
     "maxFiles": 5000,
@@ -57,16 +57,16 @@
   },
   "skipped": [],
   "summary": {
-    "total": 13,
+    "total": 12,
     "bySeverity": {
-      "info": 2,
+      "info": 1,
       "low": 3,
       "medium": 4,
       "high": 4
     },
     "byStatus": {
-      "finding": 8,
-      "needs-review": 5
+      "finding": 9,
+      "needs-review": 3
     }
   },
   "findings": [
@@ -222,17 +222,17 @@
     },
     {
       "ruleId": "setup.readme-manifest-missing",
-      "title": "README setup commands need package.json, which is missing",
+      "title": "README setup commands need package.json, which is missing where they run",
       "severity": "medium",
-      "confidence": "medium",
-      "status": "needs-review",
+      "confidence": "high",
+      "status": "finding",
       "location": {
         "path": "README.md",
         "line": 33
       },
       "evidence": "npm install | npm start | npm test | npm run build",
-      "explanation": "These commands run in the repository root, which has no package.json, so following the README fails. A package.json exists elsewhere (repotruth/package.json); the README may just be missing a `cd`.",
-      "suggestion": "Point the instructions at the directory that actually contains the manifest.",
+      "explanation": "Following the README, these commands run in the repository root, which has no package.json, so they fail as written. A package.json exists in another directory (repotruth/package.json), but the instructions never change into it.",
+      "suggestion": "If those are the intended commands, add `cd repotruth` before them; otherwise add the package.json the instructions assume or rewrite the setup section.",
       "fingerprint": "9412dc78e5965849"
     },
     {
@@ -249,21 +249,6 @@
       "explanation": "The README's license statement names MIT, while LICENSE matches Proprietary text. Users cannot tell which terms apply. Which one is correct is a legal/owner decision.",
       "suggestion": "Have the copyright owner decide the intended license and align the README and LICENSE. RepoTruth never changes license files automatically.",
       "fingerprint": "18a030044a8adb9e"
-    },
-    {
-      "ruleId": "claim.unverified-superlative",
-      "title": "Comparative performance claim: \"better than X\"",
-      "severity": "info",
-      "confidence": "low",
-      "status": "needs-review",
-      "location": {
-        "path": "repotruth/README.md",
-        "line": 70
-      },
-      "evidence": "| `claim.unverified-superlative` | \"better than X\", \"10x faster\", \"world's first\" in README or comments | `info`/`needs-review`. |",
-      "explanation": "RepoTruth found no way to verify this comparison statically. Such claims should be backed by a reproducible benchmark in the repository.",
-      "suggestion": "Link a benchmark (method, hardware, numbers) or remove the claim.",
-      "fingerprint": "286f26ec1eb5a112"
     }
   ]
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { auditRepository, AuditConfigError } from '../src/audit.js';
@@ -123,5 +123,24 @@ describe('output contract', () => {
     await writeFile(path.join(root, 'docs/.github/workflows/x.yml'), 'jobs: {a: {steps: [{run: "pytest || true"}]}}\n');
     const r = await auditRepository(root);
     assert.deepEqual(byRule(r, 'ci.masked-failure'), []);
+  });
+
+  it('never executes code from the target repository', async () => {
+    const root = await makeRepo({});
+    const marker = path.join(root, 'EXECUTED');
+    const payload = `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`;
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({
+      main: 'index.js',
+      scripts: { preinstall: `node -e "${payload}"`, test: `node -e "${payload}"`, build: `node -e "${payload}"` },
+    }));
+    await writeFile(path.join(root, 'index.js'), `${payload};\nmodule.exports = require('./lib');\n`);
+    await writeFile(path.join(root, 'lib.js'), `${payload};\n`);
+    await writeFile(path.join(root, 'Makefile'), `all:\n\ttouch ${marker}\n`);
+    await mkdir(path.join(root, '.github/workflows'), { recursive: true });
+    await writeFile(path.join(root, '.github/workflows/ci.yml'), wf(`      - run: touch ${marker} || true\n`));
+    await writeFile(path.join(root, 'README.md'), '```bash\nnpm install\nnpm test\nmake\n```\n');
+    const r = await auditRepository(root);
+    assert.ok(r.findings.length > 0);
+    await assert.rejects(access(marker), 'scanner must not run scripts, imports, workflows or make targets');
   });
 });

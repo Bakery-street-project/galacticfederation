@@ -2,6 +2,7 @@
 // language vs source files, README/package license vs LICENSE text, and
 // relative Markdown links to files that do not exist.
 
+import path from 'node:path';
 import { classifyLicenseText, familyFromSpdx, licenseMentions } from '../parsers/license.js';
 import { proseLines, relativeLinks, shellCodeLines } from '../parsers/markdown.js';
 import { stripShellComment } from '../parsers/workflow.js';
@@ -63,29 +64,60 @@ export const setupRules: RuleModule = {
   },
 };
 
+/** Directory a `git clone` creates: the explicit target argument, else the URL's last segment. */
+function cloneDirOf(cmd: string): string | undefined {
+  const args = cmd.trim().split(/\s+/).slice(2).filter((w) => !w.startsWith('-'));
+  const explicit = args[1];
+  if (explicit) return explicit.replace(/\/$/, '');
+  const url = args[0];
+  return url ? url.replace(/\/$/, '').split(/[/:]/).pop()?.replace(/\.git$/, '') : undefined;
+}
+
+/**
+ * Replays the README's shell blocks to find the directory each setup command
+ * runs in. `cd` into an existing directory is followed; `cd <clone dir>` (or
+ * the repository's own name) stays at the README's directory; any other `cd`
+ * makes the working directory uncertain, which lowers confidence. A manifest
+ * that exists somewhere else never makes a command valid where it is run.
+ */
 function checkSetupCommands(ctx: RuleContext, readme: string, md: string): void {
   const { index } = ctx;
   const base = dirname(readme);
+  const rootName = path.basename(index.root);
   let cwd = base;
-  const hits = new Map<ManifestNeed, { cmds: string[]; line: number; dir: string }>();
+  let uncertain = false;
+  let cloneDir: string | undefined;
+  const hits = new Map<ManifestNeed, { cmds: string[]; line: number; dir: string; uncertain: boolean }>();
   for (const { text, line } of shellCodeLines(md)) {
     for (const part of stripShellComment(text).split(/&&|;/).map((s) => s.trim()).filter(Boolean)) {
-      const cd = /^cd\s+(\S+)$/.exec(part);
-      if (cd) {
-        // Follow `cd` only into directories that exist here; `cd <clone-dir>` keeps the README's directory.
-        const target = joinRel(cwd, cd[1]!.replace(/\/$/, ''));
-        if (target !== null && index.isDir(target) && target !== cwd) cwd = target;
+      if (/^git\s+clone\b/.test(part)) {
+        cwd = base;
+        uncertain = false;
+        cloneDir = cloneDirOf(part);
         continue;
       }
-      if (/^git\s+clone\b/.test(part)) { cwd = base; continue; }
+      const cd = /^cd\s+(\S+)$/.exec(part);
+      if (cd) {
+        const arg = cd[1]!.replace(/\/$/, '');
+        const target = joinRel(cwd, arg);
+        if (target !== null && index.isDir(target)) {
+          cwd = target;
+        } else if (arg === cloneDir || arg === rootName) {
+          cwd = base;
+        } else {
+          uncertain = true;
+        }
+        continue;
+      }
       for (const need of NEEDS) {
         if (!need.test(part)) continue;
         const req = /-r\s+(\S+)/.exec(part);
         const candidates = req ? [req[1]!] : need.candidates;
         const found = candidates.some((c) => { const p = joinRel(cwd, c); return p !== null && index.has(p); });
         if (found) continue;
-        const h = hits.get(need) ?? { cmds: [], line, dir: cwd };
+        const h = hits.get(need) ?? { cmds: [], line, dir: cwd, uncertain };
         if (!h.cmds.includes(part)) h.cmds.push(part);
+        h.uncertain ||= uncertain;
         hits.set(need, h);
       }
     }
@@ -95,19 +127,22 @@ function checkSetupCommands(ctx: RuleContext, readme: string, md: string): void 
     const elsewhere = need.candidates.length
       ? index.list((p) => need.candidates.some((c) => p === c || p.endsWith(`/${c}`)))
       : [];
+    const where = h.dir ? `\`${h.dir}/\`` : 'the repository root';
     ctx.report({
       ruleId: 'setup.readme-manifest-missing',
-      title: `README setup commands need ${name}, which is missing`,
+      title: `README setup commands need ${name}, which is missing where they run`,
       severity: 'medium',
-      confidence: elsewhere.length ? 'medium' : 'high',
-      status: elsewhere.length ? 'needs-review' : 'finding',
+      confidence: h.uncertain ? 'medium' : 'high',
+      status: h.uncertain ? 'needs-review' : 'finding',
       location: { path: readme, line: h.line },
       evidence: truncate(h.cmds.join(' | ')),
       fingerprintKey: need.manifest,
-      explanation: `These commands run in ${h.dir ? `\`${h.dir}/\`` : 'the repository root'}, which has no ${name}, so following the README fails.`
-        + (elsewhere.length ? ` A ${need.candidates[0]} exists elsewhere (${elsewhere.slice(0, 3).join(', ')}); the README may just be missing a \`cd\`.` : ''),
+      explanation: (h.uncertain
+        ? `A \`cd\` in the instructions points to a directory not found in the repository, so the working directory is uncertain; it was assumed to be ${where}, which has no ${name}.`
+        : `Following the README, these commands run in ${where}, which has no ${name}, so they fail as written.`)
+        + (elsewhere.length ? ` A ${need.candidates[0]} exists in another directory (${elsewhere.slice(0, 3).join(', ')}), but the instructions never change into it.` : ''),
       suggestion: elsewhere.length
-        ? 'Point the instructions at the directory that actually contains the manifest.'
+        ? `If those are the intended commands, add \`cd ${dirname(elsewhere[0]!) || '.'}\` before them; otherwise add the ${name} the instructions assume or rewrite the setup section.`
         : `Add the ${name} the instructions assume, or rewrite the setup section to match how the project is really built.`,
     });
   }
