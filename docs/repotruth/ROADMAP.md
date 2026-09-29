@@ -9,12 +9,17 @@ page is **design only**.
 - a **local stdio MCP adapter** (`repotruth/src/mcp/`) with one tool,
   `audit_repository`;
 - a **local fleet dashboard** (`repotruth/src/fleet/`) with persisted runs,
-  change tracking, and a read-only GitHub App source adapter. The adapter is
+  change tracking, and a GitHub App source adapter. The adapter is
   tested against a mocked GitHub API only and has not yet been connected to a
-  live installation.
+  live installation;
+- opt-in **webhook ingestion** (HMAC-verified, replay-protected, default branch
+  only, served by the existing loopback listener).
 
-**Not built:** any hosted, network-reachable or paid API; webhooks or
-scheduled scans; check-run posting; AI review; auto-fix.
+**Not built:** any hosted, network-reachable or paid API; scheduled scans;
+check-run posting; AI review; auto-fix. Webhook ingestion is built, but it is
+opt-in and loopback-only, and not a substitute for §1b: nothing here is
+reachable from the network unless the operator puts a tunnel in front of it
+themselves.
 
 All phases reuse `auditRepository(root, options) → AuditResult` from
 `repotruth/src/audit.ts`. Adapters must not import rule internals.
@@ -59,6 +64,23 @@ substitute.
 - Use short-lived installation tokens scoped to the triggering repository. Fetch a tarball into an isolated temp dir with the same size limits, audit it, then delete it.
 - Rate limits: respect `X-RateLimit-Remaining`/`Retry-After`, use a queue with backoff, and never retry forever.
 - Output: a check run summary with annotations that map `location` → file/line. It does not block merges by default.
+
+### 2a. Webhook receiver: BUILT (`repotruth/src/fleet/webhooks.ts`)
+
+- Transport-independent: the caller passes the exact request bytes plus the
+  three delivery headers, so the verification is testable without a socket.
+- Constant-time compare of `sha256=<64 hex>` against
+  `HMAC-SHA256(secret, body)`; a missing header, a wrong algorithm prefix, a
+  malformed digest and a wrong digest all produce the same `400`.
+- Bounded FIFO of `X-GitHub-Delivery` IDs: a replay is an idempotent `200` and
+  starts no second scan. Only retryable (5xx) failures release the ID.
+- Handles `push` only, and only for a repository already selected in the fleet.
+  A delivery never adds a repository. Because a fleet scan audits the default
+  branch, a push to any other branch — and any branch deletion — is
+  acknowledged and ignored.
+- Served at `POST /webhooks` on the **existing** loopback listener
+  (`repotruth/src/fleet/web.ts`); the token-protected form endpoints are
+  untouched. Enabled by `--webhook-secret-file`.
 
 ## 3. Fleet view
 
