@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 // Starts the local RepoTruth Fleet dashboard.
 // Usage: repotruth-fleet --allowed-root <dir> [--data-dir <dir>] [--port N] [--max-parallel N]
-//   [--webhook-secret-file <file>]
+//   [--webhook-secret-file <file>] [--check-runs off|advisory|gating]
 // Optional GitHub App: REPOTRUTH_GH_APP_ID, REPOTRUTH_GH_INSTALLATION_ID,
 // REPOTRUTH_GH_PRIVATE_KEY_FILE [, REPOTRUTH_GH_API_URL].
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalRoot } from '../mcp/policy.js';
+import { CheckRunReporter, type CheckPolicy } from './checks.js';
 import { FleetService } from './service.js';
 import { GitHubAppSource, githubConfigFromEnv } from './sources/github.js';
 import { FleetStore } from './store.js';
 import { startDashboard } from './web.js';
 import { WebhookReceiver } from './webhooks.js';
+
+const CHECK_POLICIES: readonly string[] = ['off', 'advisory', 'gating'];
 
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
@@ -20,13 +23,18 @@ async function main(): Promise<number> {
   while (args.length) {
     const a = args.shift()!;
     const [k, inline] = a.includes('=') ? [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1)] : [a, undefined];
-    if (!['--allowed-root', '--data-dir', '--port', '--max-parallel', '--host', '--webhook-secret-file'].includes(k)) {
+    if (!['--allowed-root', '--data-dir', '--port', '--max-parallel', '--host', '--webhook-secret-file', '--check-runs'].includes(k)) {
       process.stderr.write(`repotruth-fleet: unknown argument ${k}\n`);
       return 2;
     }
     const v = inline ?? args.shift();
     if (!v) { process.stderr.write(`repotruth-fleet: ${k} needs a value\n`); return 2; }
     opt[k] = v;
+  }
+  const checkRuns = (opt['--check-runs'] ?? process.env.REPOTRUTH_CHECK_RUNS ?? 'off').toLowerCase();
+  if (!CHECK_POLICIES.includes(checkRuns)) {
+    process.stderr.write(`repotruth-fleet: --check-runs must be one of ${CHECK_POLICIES.join(', ')}\n`);
+    return 2;
   }
   const allowedRoot = await resolveAllowedRoot(opt['--allowed-root']);
   const dataDir = path.resolve(opt['--data-dir'] ?? process.env.REPOTRUTH_DATA_DIR ?? '.repotruth-data');
@@ -38,7 +46,11 @@ async function main(): Promise<number> {
     return 2;
   }
   const secret = await readSecret(opt['--webhook-secret-file'] ?? process.env.REPOTRUTH_GH_WEBHOOK_SECRET_FILE);
-  const svc = new FleetService({ store, allowedRoot, github, maxParallel: Number(opt['--max-parallel'] ?? 2) });
+  const svc = new FleetService({
+    store, allowedRoot, github,
+    maxParallel: Number(opt['--max-parallel'] ?? 2),
+    checks: github && checkRuns !== 'off' ? new CheckRunReporter(github, checkRuns as CheckPolicy) : null,
+  });
   const web = await startDashboard(svc, {
     host: opt['--host'] ?? '127.0.0.1',
     port: Number(opt['--port'] ?? 4178),
@@ -50,6 +62,7 @@ async function main(): Promise<number> {
     `Local repositories: ${allowedRoot ? 'enabled (under the given --allowed-root)' : 'disabled'}`,
     `GitHub App: ${github ? 'configured (not yet contacted)' : 'not configured'}`,
     `Webhooks: ${secret ? 'enabled at POST /webhooks (X-Hub-Signature-256 required)' : 'disabled (no --webhook-secret-file)'}`,
+    `Check runs: ${github && checkRuns !== 'off' ? `${checkRuns} (posted to GitHub after every completed scan)` : 'disabled'}`,
     `API token for scripted POSTs (header X-RepoTruth-Token): ${web.token}`,
     '',
   ].join('\n'));
