@@ -60,14 +60,14 @@ stable when lines shift.
 | `ci.continue-on-error` | `continue-on-error: true` on jobs or steps | Only the step/job key counts, not action inputs. Expressions are `info`/`needs-review`. |
 | `ci.stack-mismatch` | Python/Node/Go/Rust/Java tooling in CI with no source files or manifests for that ecosystem | Medium confidence. |
 | `ci.workflow-empty`, `ci.workflow-invalid` | Empty or unparseable workflow files | |
-| `setup.readme-manifest-missing` | README shell blocks run `npm install/ci/test/run`, `yarn`, `pnpm`, `pip install -r/.`, `cargo`, `go`, `make` with no matching manifest | Follows `cd` into existing directories. Lower confidence if the manifest exists elsewhere. |
+| `setup.readme-manifest-missing` | README shell blocks run `npm install/ci/test/run`, `yarn`, `pnpm`, `pip install -r/.`, `cargo`, `go`, `make` where no matching manifest exists | Replays `git clone` and `cd` to find the working directory. A manifest in another directory never makes the command valid; it only shapes the suggestion. An unresolvable `cd` lowers it to `needs-review`. |
 | `setup.declared-language-missing` | "Written/developed in X" with zero X files | |
 | `setup.license-conflict` | README license statement or package.json `license` vs LICENSE text | Always `needs-review`. Unrecognized license text is **not evaluated**. RepoTruth never edits licenses. |
 | `docs.broken-relative-link` | Relative Markdown links (root, `docs/`, `.github/`) to missing files | Links that leave the repo, such as GitHub web routes, are skipped. |
 | `js.unresolved-import` | Relative JS/TS imports that match no file | Tries extensions, `.js`→`.ts`, and index files. Bare package specifiers are never judged. tsconfig `paths` aliases are **not evaluated**. |
 | `js.missing-entry-point`, `js.package-json-invalid` | `main/module/types/bin/exports` pointing to missing files; invalid JSON | Build-output paths are accepted when a build script exists. |
 | `claim.simulation-marker` | Comments saying code is simulated, a placeholder, stubbed, or "for demo" | `needs-review`. Test and fixture paths are excluded. |
-| `claim.unverified-superlative` | "better than X", "10x faster", "world's first" in README or comments | `info`/`needs-review`. |
+| `claim.unverified-superlative` | Comparative claims such as "better than X", "10x faster", "world's first" in README prose or comments | `info`/`needs-review`. A quotation or code span containing *only* the phrase names it rather than asserting it, and is skipped. A longer quotation containing it is still reported and marked as quoted. |
 
 ## Known limitations
 
@@ -75,7 +75,11 @@ stable when lines shift.
   full parser. Unusual syntax such as regex literals containing quotes can
   cause misses or false hits.
 - Claim rules match words, so prose *about* stubs or simulations (a
-  changelog, say) can be flagged. That is why they are `needs-review`.
+  changelog, say) can be flagged. That is why they are `needs-review`. The
+  comparative-claim rule skips a phrase only when a quotation or code span
+  contains exactly that phrase. An unquoted mention in running prose is still
+  reported, because the heuristic cannot reliably tell it apart from a
+  claim.
 - Only GitHub Actions is evaluated. GitLab, CircleCI, Travis, Azure, Jenkins
   and `dependabot.yml` are reported as **not evaluated**.
 - Symlinks are never followed. In-repo symlinks count as "present" for import

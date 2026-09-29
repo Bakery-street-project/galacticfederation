@@ -51,26 +51,89 @@ export const claimRules: RuleModule = {
           });
         }
       }
-      for (const c of comments) reportSuperlative(ctx, file, c.text, c.line);
+      for (const c of comments) reportSuperlative(ctx, file, [c]);
     }
 
     for (const readme of readmes) {
       const md = await index.readText(readme);
       if (md === null) continue;
-      for (const { text, line } of proseLines(md)) reportSuperlative(ctx, readme, text, line);
+      for (const para of paragraphs(proseLines(md))) reportSuperlative(ctx, readme, para);
     }
   },
 };
 
-function reportSuperlative(ctx: RuleContext, path: string, text: string, line: number): void {
-  const m = SUPERLATIVE.exec(text);
+const SUPERLATIVE_ALL = new RegExp(SUPERLATIVE.source, 'gi');
+/** Double-quoted (straight or curly) and inline-code spans. */
+const QUOTED_SPAN = /"([^"\n]*)"|\u201c([^\u201d\n]*)\u201d|`([^`\n]*)`/g;
+
+export interface ComparativeMatch {
+  phrase: string;
+  /** Offset of the phrase in the input text. */
+  index: number;
+  /** True when the phrase sits inside a quotation that also carries other words. */
+  quoted: boolean;
+}
+
+/**
+ * Finds the first comparative phrase used as an assertion. Use-mention rule:
+ * a quotation or code span whose entire content is the phrase itself (e.g. a
+ * rules table listing "better than X") names the phrase rather than asserting
+ * it, so it is skipped. A longer quotation that contains the phrase (a quoted
+ * sentence or testimonial) is still reported, flagged as quoted.
+ */
+export function findComparativeClaim(text: string): ComparativeMatch | null {
+  const spans: { start: number; end: number; content: string }[] = [];
+  for (const q of text.matchAll(QUOTED_SPAN)) {
+    const content = q[1] ?? q[2] ?? q[3] ?? '';
+    spans.push({ start: q.index!, end: q.index! + q[0].length, content });
+  }
+  const norm = (s: string) => s.toLowerCase().replace(/[\s.,;:!?]+$/g, '').replace(/^[\s.,;:!?]+/g, '').replace(/\s+/g, ' ');
+  for (const m of text.matchAll(SUPERLATIVE_ALL)) {
+    const phrase = m[1]!.replace(/[.,;:!?]+$/, '');
+    const at = m.index!;
+    const span = spans.find((sp) => at >= sp.start && at < sp.end);
+    if (!span) return { phrase, index: at, quoted: false };
+    if (norm(span.content) === norm(phrase)) continue; // a mention, not a claim
+    return { phrase, index: at, quoted: true };
+  }
+  return null;
+}
+
+/**
+ * Groups Markdown prose into paragraphs so quotations wrapped across lines
+ * are seen whole. Table rows and headings stand alone.
+ */
+export function paragraphs(lines: { text: string; line: number }[]): { text: string; line: number }[][] {
+  const out: { text: string; line: number }[][] = [];
+  let cur: { text: string; line: number }[] = [];
+  const flush = () => { if (cur.length) out.push(cur); cur = []; };
+  for (const l of lines) {
+    if (!l.text.trim()) { flush(); continue; }
+    if (/^\s*(\||#{1,6}\s)/.test(l.text)) { flush(); out.push([l]); continue; }
+    cur.push(l);
+  }
+  flush();
+  return out;
+}
+
+function reportSuperlative(ctx: RuleContext, path: string, lines: { text: string; line: number }[]): void {
+  const text = lines.map((l) => l.text).join(' ');
+  const m = findComparativeClaim(text);
   if (!m) return;
+  let offset = 0;
+  let hit = lines[0]!;
+  for (const l of lines) {
+    if (m.index < offset + l.text.length + 1) { hit = l; break; }
+    offset += l.text.length + 1;
+  }
+  const line = hit.line;
   ctx.report({
     ruleId: 'claim.unverified-superlative',
-    title: `Comparative performance claim: "${truncate(m[1]!, 60)}"`,
+    title: `Comparative performance claim: "${truncate(m.phrase, 60)}"`,
     severity: 'info', confidence: 'low', status: 'needs-review',
-    location: { path, line }, evidence: truncate(text), fingerprintKey: m[1]!.toLowerCase(),
-    explanation: 'RepoTruth found no way to verify this comparison statically. Such claims should be backed by a reproducible benchmark in the repository.',
+    location: { path, line }, evidence: truncate(hit.text), fingerprintKey: m.phrase.toLowerCase(),
+    explanation: 'RepoTruth found no way to verify this comparison statically. Such claims should be backed by a reproducible benchmark in the repository.'
+      + (m.quoted ? ' The phrase appears inside a quotation; confirm whether the project itself makes this claim.' : ''),
     suggestion: 'Link a benchmark (method, hardware, numbers) or remove the claim.',
   });
 }

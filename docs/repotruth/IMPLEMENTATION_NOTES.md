@@ -46,3 +46,72 @@ Also found, not in the plan: `.github/workflows/security-scan.yml` is empty
 `automation/*`, `.github/workflows/ci.yml`, the empty `security-scan.yml`,
 the root README and LICENSE were not modified. Fixing them is an owner
 decision, especially the license. The self-audit keeps reporting them.
+
+## CI triage: GitHub Actions `startup_failure` (2026-09-29)
+
+**Observed** via the GitHub API with the session's authenticated access:
+
+- Run 36551100959 (push, `0ee2b6d`) and run 36551386324 (`pull_request`, same
+  SHA, PR #4) both ended `completed / startup_failure`.
+  - Jobs: 0. Check runs on the PR head: 0.
+  - Logs endpoint: 404. Billable usage: `{}`.
+  - **No runner started and no step ran**, so no test or build failed.
+- Both runs belong to workflow id 236408486, whose `path` is `BuildFailed`
+  and `state` is `deleted`, created 2026-02-20. It is not the ID of
+  `repotruth.yml`, which has never been registered as a workflow. GitHub uses
+  this pseudo-workflow when it cannot build the run for a push or event.
+- That pseudo-workflow has 94 runs. Runs 87–92 (2026-05-07 to 05-12,
+  `schedule` on `main`, commit `4f7f8c4`) are also `startup_failure`, months
+  before `repotruth.yml` existed.
+- GitHub-managed Dependabot runs (`dynamic`, workflow 236312744), which don't
+  depend on any repository workflow file:
+  - succeeded weekly from 2026-08-17 to 09-21;
+  - then ended `startup_failure` on **2026-09-28 20:53 UTC** (run
+    36482368191), the day before `repotruth.yml` was pushed.
+- `actionlint` 1.7.7 (release tarball, SHA-256 verified against the release
+  checksums; shellcheck integration off) reports **no errors** in
+  `.github/workflows/repotruth.yml`. The only error in the directory is the
+  pre-existing empty `security-scan.yml`.
+
+**Inference:** the failure is not caused by `repotruth.yml`'s content. A
+workflow that didn't touch it failed the same way the day before. The old
+workflows being disabled doesn't explain it either, because the Dependabot
+job is not one of them. No workflow change was made, since no evidence
+points to one.
+
+**Not observable with this access:**
+- the repository and organization Actions settings;
+- billing and spending limits;
+- the "Annotations" panel text on the run page.
+
+**Checklist for the owner:**
+
+1. Open https://github.com/Bakery-street-project/galacticfederation/actions/runs/36551100959
+   and read the annotation at the top of the page.
+   - A message about **billing, a spending limit or a locked account** means
+     **billing**.
+   - "... is not allowed to be used" / "actions must be from ..." means
+     **policy**.
+   - "Invalid workflow file" naming a path means **workflow configuration**.
+2. Organization **Settings → Billing and plans / Spending limits**: are the
+   Actions minutes for private repos used up for the cycle, or is a payment
+   failing? The Dependabot failure starting on 09-28 fits a billing or
+   spending cut-off.
+3. Repository **Settings → Actions → General**:
+   - "Actions permissions" must allow `actions/checkout` and
+     `actions/setup-node`;
+   - Actions must not be disabled for the repo.
+
+   Also check organization **Settings → Actions → General**, which can
+   override the repository setting.
+4. **Runner:** this workflow uses GitHub-hosted `ubuntu-latest`. A
+   runner-side cause would show a queued job that never gets picked up, not
+   a startup failure with zero jobs. The current evidence doesn't point this
+   way.
+
+## Proposed disposition of legacy workflows (not applied; owner decision)
+
+| File | Today | Proposal |
+|---|---|---|
+| `.github/workflows/ci.yml` | Disabled in GitHub. Runs Python ruff/bandit/pytest with every step masked by `\|\| true` in a repo with no Python. It can never fail and checks nothing. | **Delete it**, since `repotruth.yml` covers the only real code. Alternatively, rewrite it to lint and compile `automation/` (e.g. `tsc --noEmit`, `cc -fsyntax-only`) with no masking. In that case expect `neuromorphic_engine.ts` to fail on its missing import until that's resolved. |
+| `.github/workflows/security-scan.yml` | 0 bytes. Registered, `disabled_manually`. `actionlint`: "workflow is empty". | **Delete it**, or replace it with an intended scanner such as CodeQL default setup, which already appears as a dynamic workflow. An empty file runs nothing and shows as invalid. |

@@ -1,5 +1,5 @@
 RepoTruth 0.1.0: audit of "galacticfederation"
-Indexed 47 files, read 40 (136901 bytes) in 87 ms. No repository code was executed.
+Indexed 47 files, read 40 (147110 bytes) in 87 ms. No repository code was executed.
 
 MEDIUM ci.stack-mismatch  .github/workflows/ci.yml:14
   CI uses python tooling but the repository has no python project  [finding, confidence medium]
@@ -72,10 +72,10 @@ LOW    docs.broken-relative-link  CONTRIBUTING.md:9
   id:       23a91743a1cc189f
 
 MEDIUM setup.readme-manifest-missing  README.md:33
-  README setup commands need package.json, which is missing  [needs-review, confidence medium]
+  README setup commands need package.json, which is missing where they run  [finding, confidence high]
   Evidence: npm install | npm start | npm test | npm run build
-  Why:      These commands run in the repository root, which has no package.json, so following the README fails. A package.json exists elsewhere (repotruth/package.json); the README may just be missing a `cd`.
-  Next:     Point the instructions at the directory that actually contains the manifest.
+  Why:      Following the README, these commands run in the repository root, which has no package.json, so they fail as written. A package.json exists in another directory (repotruth/package.json), but the instructions never change into it.
+  Next:     If those are the intended commands, add `cd repotruth` before them; otherwise add the package.json the instructions assume or rewrite the setup section.
   id:       9412dc78e5965849
 
 MEDIUM setup.license-conflict  README.md:55
@@ -84,13 +84,6 @@ MEDIUM setup.license-conflict  README.md:55
   Why:      The README's license statement names MIT, while LICENSE matches Proprietary text. Users cannot tell which terms apply. Which one is correct is a legal/owner decision.
   Next:     Have the copyright owner decide the intended license and align the README and LICENSE. RepoTruth never changes license files automatically.
   id:       18a030044a8adb9e
-
-INFO   claim.unverified-superlative  repotruth/README.md:70
-  Comparative performance claim: "better than X"  [needs-review, confidence low]
-  Evidence: | `claim.unverified-superlative` | "better than X", "10x faster", "world's first" in README or comments | `info`/`needs-review`. |
-  Why:      RepoTruth found no way to verify this comparison statically. Such claims should be backed by a reproducible benchmark in the repository.
-  Next:     Link a benchmark (method, hardware, numbers) or remove the claim.
-  id:       286f26ec1eb5a112
 
 Coverage
   evaluated      ci: GitHub Actions: 5 workflow file(s) parsed structurally
@@ -101,5 +94,5 @@ Coverage
   evaluated      claims: comments & README: simulation markers and unbenchmarked superlatives in 25 source file(s) and README
   NOT evaluated  ci: dependabot config: dependabot.yml is not checked in this version
 
-Summary: 13 total: 4 high, 4 medium, 3 low, 2 info (8 finding, 5 needs-review).
+Summary: 12 total: 4 high, 4 medium, 3 low, 1 info (9 finding, 3 needs-review).
 Threshold --fail-on low: 11 finding(s) at or above it.
