@@ -50,3 +50,23 @@ node dist/src/bin.js audit .. --format json    # versioned JSON (schemaVersion 1
 
 AGPL-3.0-only — see the root [`LICENSE`](LICENSE). A company that wants to use RepoTruth
 internally must open-source its own modifications.
+
+## Source for network users (AGPL §13)
+
+The audit CLI and the stdio MCP server open no network socket. The **fleet**
+dashboard does: it serves HTTP on `127.0.0.1:4178` by default (`--host` /
+`--port`), and when `--webhook-secret-file` is set, `POST /webhooks` is served
+on that same loopback listener so GitHub can deliver signed pushes.
+
+If you expose that listener beyond loopback — a different `--host`, or a tunnel
+in front of it — remote users are interacting with your build over a network
+and AGPL §13 applies. You must then offer those users the Corresponding Source
+of *your* version from a network server at no charge, through some standard or
+customary means of copying software.
+
+The Corresponding Source for this work is public at no charge here:
+
+    https://github.com/Bakery-street-project/galacticfederation
+
+Check out the commit you built from on `main` to reproduce it exactly.
+`repotruth -v` prints the version of the copy you are running.
