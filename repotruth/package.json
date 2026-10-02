@@ -19,9 +19,10 @@
     "audit:self": "npm run build && node dist/src/bin.js audit ..",
     "mcp": "npm run build && node dist/src/mcp/bin.js",
     "prefleet": "npm run build",
-    "fleet": "node dist/src/fleet/bin.js"
+    "fleet": "node dist/src/fleet/bin.js",
+    "prepare": "npm run build"
   },
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "devDependencies": {
     "@modelcontextprotocol/client": "2.2.0",
     "@types/node": "22.20.4",
